@@ -80,8 +80,7 @@ async function execute(interaction) {
 
     if (!member.manageable) {
       return interaction.editReply(
-        `🏆 Переможець: **${winningVariant}**\n\n` +
-        `❌ Не можу змінити нікнейм цього користувача через ієрархію ролей.`
+        `🏆 Переможець: **${winningVariant}**\n\n❌ Не можу змінити нікнейм цього користувача через ієрархію ролей.`
       );
     }
 
