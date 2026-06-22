@@ -19,6 +19,9 @@ module.exports = {
         flags: MessageFlags.Ephemeral
       })
     }
+    if (interaction.channel.isThread()) {
+      return interaction.reply("❌ Команда доступна лише в гілках")
+    }
     const target = interaction.options.getUser('target')
     const channel = interaction.channel
     if (!channel.isTextBased()) {
