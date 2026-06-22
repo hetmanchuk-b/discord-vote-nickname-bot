@@ -50,6 +50,10 @@ module.exports = {
 Пишіть варінти нижче.
         `
       })
+      const infoMessage = await newThread.send({
+        content: `USER_ID:${target.id}`
+      })
+      await infoMessage.pin()
     } catch (error) {
       console.error('Error creating channel', error)
     }

@@ -59,3 +59,5 @@ The bot will create a thread where users can suggest nickname variants.
 Use the `/nickname-variants` or `/nickname-variants-by` slash command to view the current variants.
 
 Use the `/nickname-end` slash command to end the suggestion stage and create a poll with five random options.
+
+Use the `/nickname-manage-result` slash command to end the poll and set the final nickname for the selected member.
