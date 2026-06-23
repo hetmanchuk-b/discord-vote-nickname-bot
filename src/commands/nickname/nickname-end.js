@@ -1,6 +1,7 @@
 const {SlashCommandBuilder, MessageFlags} = require("discord.js")
 const fetchAllVariants = require("../../utils/fetch-all-variants.js")
 const shuffle = require("../../utils/shuffle.js")
+const getUniqueVariants = require("../../utils/get-unique-variants.js")
 const {FINALISTS_COUNT} = require("../../utils/constants.js")
 
 const data = new SlashCommandBuilder()
@@ -23,7 +24,7 @@ module.exports = {
 
     try {
       const messages = await fetchAllVariants(interaction.channel)
-      const variants = [...new Set(messages.map(m => m.content.trim()).filter(Boolean))]
+      const variants = getUniqueVariants(messages)
 
       if (variants.length < 2) {
         return interaction.editReply('❌ Потрібно щонайменше 2 варіанти для голосування.')
