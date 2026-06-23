@@ -56,7 +56,7 @@ A simple Discord bot for starting nickname voting threads on a Discord server.
 Use the `/nickname-start` slash command in a server text channel to start a nickname vote for a selected user.
 The bot will create a thread where users can suggest nickname variants.
 
-Use the `/nickname-variants` or `/nickname-variants-by` slash command to view the current variants.
+Use the `/nickname-variants` or `/nickname-variants-by` slash command to view current variants.
 
 Use the `/nickname-end` slash command to end the suggestion stage and create a poll with five random options.
 

@@ -1,4 +1,4 @@
-const {SlashCommandBuilder, PermissionFlagsBits, MessageFlags} = require("discord.js");
+const {SlashCommandBuilder, MessageFlags} = require("discord.js");
 const {MAX_VARIANTS_PER_USER} = require("../../utils/constants.js");
 
 const data = new SlashCommandBuilder()
@@ -7,7 +7,6 @@ const data = new SlashCommandBuilder()
   .addUserOption((option) => {
     return option.setName('target').setDescription('Кому обирати нікнейм?').setRequired(true)
   })
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames)
 
 module.exports = {
   data,
