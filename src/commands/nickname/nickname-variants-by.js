@@ -1,4 +1,4 @@
-const {SlashCommandBuilder} = require("discord.js");
+const {SlashCommandBuilder, AttachmentBuilder} = require("discord.js");
 const fetchAllVariants = require("../../utils/fetch-all-variants.js");
 const groupMessages = require("../../utils/group-messages.js");
 const {MAX_VARIANTS_PER_USER} = require("../../utils/constants.js");
@@ -29,8 +29,20 @@ ${variants.length > MAX_VARIANTS_PER_USER ? '(_дег._) ' : ''}**${user} (${var
           `
         })
         .join('\n')
+      
+      if (output && output.length > 1900) {
+        const attachment = new AttachmentBuilder(
+          Buffer.from(output, 'utf-8'),
+          { name: 'variants.txt' },
+        )
+        return interaction.editReply({
+          content: "📄 Список занадто великий, тому додаю його файлом.",
+          files: [attachment]
+        })
+      }
 
       await interaction.editReply(output || 'Варіанти не знайдено')
+
     } catch (error) {
       console.error(error)
       await interaction.editReply("❌ Помилка при отриманні варіантів.");

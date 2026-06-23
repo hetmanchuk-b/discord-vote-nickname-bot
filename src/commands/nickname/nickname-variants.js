@@ -1,4 +1,4 @@
-const {SlashCommandBuilder} = require("discord.js");
+const {SlashCommandBuilder, AttachmentBuilder} = require("discord.js");
 const fetchAllVariants = require("../../utils/fetch-all-variants.js");
 
 const data = new SlashCommandBuilder()
@@ -16,7 +16,20 @@ module.exports = {
 
     try {
       const allMessages = await fetchAllVariants(interaction.channel)
-      await interaction.editReply(`Всі варіанти: \n${allMessages.map(m => m.content).join(', ')}`)
+      const output = allMessages.map(m => m.content).join(', ')
+
+      if (output && output.length > 1900) {
+        const attachment = new AttachmentBuilder(
+          Buffer.from(output, 'utf-8'),
+          { name: 'variants.txt' },
+        )
+        return interaction.editReply({
+          content: "📄 Список занадто великий, тому додаю його файлом.",
+          files: [attachment]
+        })
+      }
+
+      await interaction.editReply(`Всі варіанти: \n${output}`)
     } catch (error) {
       console.error(error)
       await interaction.editReply('❌ Помилка при отриманні варіантів.')
