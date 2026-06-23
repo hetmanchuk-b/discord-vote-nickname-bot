@@ -14,7 +14,7 @@ module.exports = {
 
     if (!interaction.channel.isThread()) {
       return interaction.reply({
-        content: 'Команду можна використовувати тільки в гілках',
+        content: '❌ Команду можна використовувати тільки в гілках',
         flags: MessageFlags.Ephemeral
       })
     }

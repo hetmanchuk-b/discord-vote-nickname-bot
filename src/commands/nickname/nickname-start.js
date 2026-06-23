@@ -1,5 +1,4 @@
 const {SlashCommandBuilder, MessageFlags} = require("discord.js");
-const {MAX_VARIANTS_PER_USER} = require("../../utils/constants.js");
 
 const data = new SlashCommandBuilder()
   .setName('nickname-start')
@@ -14,24 +13,27 @@ module.exports = {
     const guild = interaction.guild
     if (!guild) {
       return interaction.reply({
-        content: 'Команда доступна лише на сервері',
+        content: '❌ Команда доступна лише на сервері',
         flags: MessageFlags.Ephemeral
       })
     }
     if (interaction.channel.isThread()) {
-      return interaction.reply("❌ Команда доступна лише в гілках")
+      return interaction.reply({
+        content: "❌ Команда доступна лише в гілках",
+        flags: MessageFlags.Ephemeral
+      })
     }
     const target = interaction.options.getUser('target')
     const channel = interaction.channel
     if (!channel.isTextBased()) {
       return interaction.reply({
-        content: 'Не текстовий канал'
+        content: '❌ Команда доступна лише в текстовому каналі'
       })
     }
 
     try {
       const newThread = await channel.threads.create({
-        name: `${target.username}\'s nickname`,
+        name: `Нікнейм для ${target.displayName}`,
         autoArchiveDuration: 4320,
         // type: ChannelType.GuildText,
         reason: 'Nickname voting'
@@ -44,7 +46,6 @@ module.exports = {
 
 Правила:
 - 1 повідомлення = 1 варіант
-- Не більше ${MAX_VARIANTS_PER_USER} варіантів від одного
 - До 32 символів
 - Без емоджі
 - Без негативу

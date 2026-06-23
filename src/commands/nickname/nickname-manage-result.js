@@ -8,9 +8,13 @@ const data = new SlashCommandBuilder()
 async function execute(interaction) {
   if (!interaction.isChatInputCommand()) return;
   if (!interaction.channel.isThread()) {
-    return interaction.reply("Команду можна використовувати тільки в гілках")
+    return interaction.reply({
+      content: "❌ Команду можна використовувати тільки в гілках",
+    })
   }
   await interaction.deferReply()
+
+  await interaction.editReply('🎲 Збираю і перемішую варіанти.. o(*￣▽￣*)ブ')
 
   // Find first message
   try {
@@ -37,6 +41,8 @@ async function execute(interaction) {
       return interaction.editReply("❌ Голосування не знайдено.");
     }
 
+    await interaction.editReply('🎲 Голосування знайдено (✿◡‿◡)')
+
     // End poll if still active
     if (!pollMessage.poll.resultsFinalized) {
       await pollMessage.poll.end()
@@ -51,6 +57,8 @@ async function execute(interaction) {
     if (maxVotes === 0) {
       return interaction.editReply("❌ Ніхто не проголосував.");
     }
+
+    await interaction.editReply('🎲 Визначаю переможця O(∩_∩)O')
 
     const winners = answers.filter(answer => answer.voteCount === maxVotes);
 
@@ -67,6 +75,8 @@ async function execute(interaction) {
     }
 
     const winningVariant = winners[0].text
+
+    await interaction.editReply('🎲 Переможця визначено, застосовую нікнейм *(੭*ˊᵕˋ)੭*ଘ')
 
     // Apply nickname
     const member = await interaction.guild.members.fetch(targetUserId)

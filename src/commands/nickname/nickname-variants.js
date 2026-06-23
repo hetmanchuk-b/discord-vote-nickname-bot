@@ -1,4 +1,4 @@
-const {SlashCommandBuilder, AttachmentBuilder} = require("discord.js");
+const {SlashCommandBuilder, AttachmentBuilder, MessageFlags} = require("discord.js");
 const fetchAllVariants = require("../../utils/fetch-all-variants.js");
 
 const data = new SlashCommandBuilder()
@@ -10,7 +10,10 @@ module.exports = {
   async execute(interaction) {
     if (!interaction.isChatInputCommand()) return;
     if (!interaction.channel.isThread()) {
-      return interaction.reply("Команду можна використовувати тільки в гілках")
+      return interaction.reply({
+        content: "❌ Команду можна використовувати тільки в гілках",
+        flags: MessageFlags.Ephemeral
+      })
     }
     await interaction.deferReply()
 

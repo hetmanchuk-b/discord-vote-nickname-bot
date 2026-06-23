@@ -1,4 +1,4 @@
-const {SlashCommandBuilder, AttachmentBuilder} = require("discord.js");
+const {SlashCommandBuilder, AttachmentBuilder, MessageFlags} = require("discord.js");
 const fetchAllVariants = require("../../utils/fetch-all-variants.js");
 const groupMessages = require("../../utils/group-messages.js");
 const {MAX_VARIANTS_PER_USER} = require("../../utils/constants.js");
@@ -13,7 +13,10 @@ module.exports = {
     if (!interaction.isChatInputCommand()) return;
 
     if (!interaction.channel.isThread()) {
-      return interaction.reply('Команду можна використовувати тільки в гілках')
+      return interaction.reply({
+        content: '❌ Команду можна використовувати тільки в гілках',
+        flags: MessageFlags.Ephemeral
+      })
     }
 
     await interaction.deferReply()
@@ -24,9 +27,7 @@ module.exports = {
 
       const output = [...grouped.entries()]
         .map(([user, variants]) => {
-          return `
-${variants.length > MAX_VARIANTS_PER_USER ? '(_дег._) ' : ''}**${user} (${variants.length})**: ${variants.join(', ')}
-          `
+          return `${variants.length > MAX_VARIANTS_PER_USER ? '_дег._ ' : ''}**${user} (${variants.length})**: ${variants.join(', ')}`
         })
         .join('\n')
       
@@ -36,13 +37,12 @@ ${variants.length > MAX_VARIANTS_PER_USER ? '(_дег._) ' : ''}**${user} (${var
           { name: 'variants.txt' },
         )
         return interaction.editReply({
-          content: "📄 Список занадто великий, тому додаю його файлом.",
+          content: "📄 Список варіантів файлом.",
           files: [attachment]
         })
       }
 
       await interaction.editReply(output || 'Варіанти не знайдено')
-
     } catch (error) {
       console.error(error)
       await interaction.editReply("❌ Помилка при отриманні варіантів.");
