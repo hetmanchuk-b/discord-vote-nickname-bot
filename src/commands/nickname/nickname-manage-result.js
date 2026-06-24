@@ -14,10 +14,9 @@ async function execute(interaction) {
   }
   await interaction.deferReply()
 
-  await interaction.editReply('🎲 Збираю і перемішую варіанти.. o(*￣▽￣*)ブ')
-
   // Find first message
   try {
+    await interaction.editReply('🏆 Шукаю перше повідомлення o(*≧▽≦)ツ┏━┓')
     const thread = interaction.channel
     const pinned = await thread.messages.fetchPins();
 
@@ -25,6 +24,7 @@ async function execute(interaction) {
 
     const targetUserId = metadataMessage.content.match(/USER_ID:(\d+)/)?.[1];
 
+    await interaction.editReply('🏆 Шукаю голосування o(*￣▽￣*)ブ')
     // Find poll message
     let pollMessage = null
     let before = null
@@ -41,7 +41,7 @@ async function execute(interaction) {
       return interaction.editReply("❌ Голосування не знайдено.");
     }
 
-    await interaction.editReply('🎲 Голосування знайдено (✿◡‿◡)')
+    await interaction.editReply('🏆 Голосування знайдено (✿◡‿◡)')
 
     // End poll if still active
     if (!pollMessage.poll.resultsFinalized) {
@@ -58,7 +58,7 @@ async function execute(interaction) {
       return interaction.editReply("❌ Ніхто не проголосував.");
     }
 
-    await interaction.editReply('🎲 Визначаю переможця O(∩_∩)O')
+    await interaction.editReply('🏆 Визначаю переможця O(∩_∩)O')
 
     const winners = answers.filter(answer => answer.voteCount === maxVotes);
 
@@ -76,7 +76,7 @@ async function execute(interaction) {
 
     const winningVariant = winners[0].text
 
-    await interaction.editReply('🎲 Переможця визначено, застосовую нікнейм *(੭*ˊᵕˋ)੭*ଘ')
+    await interaction.editReply('🏆 Переможця визначено, застосовую нікнейм *(੭*ˊᵕˋ)੭*ଘ')
 
     // Apply nickname
     const member = await interaction.guild.members.fetch(targetUserId)

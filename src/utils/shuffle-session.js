@@ -3,12 +3,14 @@ const {ActionRowBuilder, ButtonBuilder, ButtonStyle} = require('discord.js')
 function buildButtons(selectedCount) {
   const row = new ActionRowBuilder()
 
-  row.addComponents(
-    new ButtonBuilder()
-      .setCustomId('shuffle:roll')
-      .setLabel('🎲 Випадковий варіант')
-      .setStyle(ButtonStyle.Primary)
-  );
+  if (selectedCount < 10) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId('shuffle:roll')
+        .setLabel('🎲 Випадковий варіант')
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
 
   if (selectedCount > 0) {
     row.addComponents(
