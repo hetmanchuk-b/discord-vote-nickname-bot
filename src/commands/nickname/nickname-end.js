@@ -1,61 +1,46 @@
-const {SlashCommandBuilder, MessageFlags} = require("discord.js")
-const fetchAllVariants = require("../../utils/fetch-all-variants.js")
-const shuffle = require("../../utils/shuffle.js")
-const getUniqueVariants = require("../../utils/get-unique-variants.js")
-const {FINALISTS_COUNT} = require("../../utils/constants.js")
+const { SlashCommandBuilder, MessageFlags} = require('discord.js');
+const fetchAllVariants = require('../../utils/fetch-all-variants.js');
+const getUniqueVariants = require('../../utils/get-unique-variants.js');
+const {buildButtons, renderContent} = require('../../utils/shuffle-session.js');
 
 const data = new SlashCommandBuilder()
   .setName('nickname-end')
-  .setDescription('Завершити збір варіантів та створити голосування.')
+  .setDescription('Дістати випадковий варіант')
 
-module.exports = {
-  data,
-  async execute(interaction) {
-    if (!interaction.isChatInputCommand()) return
+async function execute(interaction) {
+  if (!interaction.isChatInputCommand()) return
 
-    if (!interaction.channel.isThread()) {
-      return interaction.reply({
-        content: '❌ Команду можна використовувати тільки в гілках',
-        flags: MessageFlags.Ephemeral
-      })
-    }
+  if (!interaction.channel.isThread()) {
+    return interaction.reply({
+      content: '❌ Команду можна використовувати тільки в гілках',
+      flags: MessageFlags.Ephemeral
+    })
+  }
 
-    await interaction.deferReply()
+  await interaction.deferReply()
 
-    try {
-      const messages = await fetchAllVariants(interaction.channel)
-      const variants = getUniqueVariants(messages)
+  try {
+    const messages = await fetchAllVariants(interaction.channel)
+    const variants = getUniqueVariants(messages)
 
-      if (variants.length < 2) {
-        return interaction.editReply('❌ Потрібно щонайменше 2 варіанти для голосування.')
-      }
+    if (variants.length < 2) return interaction.editReply('❌ Потрібно щонайменше 2 варіанта.')
 
-      const finalists = shuffle([...variants]).slice(0, Math.min(FINALISTS_COUNT, variants.length))
+    const reply = await interaction.editReply({
+      content: renderContent([]),
+      components: buildButtons(0),
+      fetchReply: true
+    })
 
-      await interaction.channel.send({
-        poll: {
-          question: {
-            text: '🏆 Оберіть найкращий варіант нікнейму'
-          },
-          answers: finalists.map(variant => ({text: variant})),
-          allowMultiselect: false,
-          duration: 24
-        }
-      })
+    interaction.client.shuffleSessions.set(reply.id, {
+      availableVariants: [...variants],
+      selectedVariants: [],
+      threadId: interaction.channel.id,
+    })
 
-      await interaction.editReply(
-        [
-          "✅ Голосування створено",
-          "",
-          "Фіналісти:",
-          ...finalists.map(v => `• ${v}`)
-        ].join("\n")
-      )
-      await interaction.channel.setLocked(true)
-    } catch (error) {
-      console.error(error)
-
-      await interaction.editReply('❌ Помилка при створенні голосування.')
-    }
+  } catch (error) {
+    console.error(error)
+    await interaction.editReply('❌ Помилка')
   }
 }
+
+module.exports = {data, execute}
