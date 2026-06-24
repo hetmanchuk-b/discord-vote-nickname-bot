@@ -43,5 +43,6 @@ for (const file of eventFiles) {
 }
 
 client.cooldowns = new Collection();
+client.shuffleSessions = new Collection();
 
 client.login(token);

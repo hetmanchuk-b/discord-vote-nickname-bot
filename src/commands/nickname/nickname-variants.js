@@ -19,7 +19,7 @@ module.exports = {
 
     try {
       const allMessages = await fetchAllVariants(interaction.channel)
-      const output = allMessages.map(m => m.content).join(', ')
+      const output = allMessages.map(m => m.content).join('\n')
 
       if (output && output.length > 1900) {
         const attachment = new AttachmentBuilder(
