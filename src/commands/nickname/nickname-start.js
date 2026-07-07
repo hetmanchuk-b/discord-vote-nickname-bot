@@ -19,7 +19,7 @@ module.exports = {
     }
     if (interaction.channel.isThread()) {
       return interaction.reply({
-        content: "❌ Команда доступна лише в гілках",
+        content: "❌ Команда недоступна в гілках",
         flags: MessageFlags.Ephemeral
       })
     }
