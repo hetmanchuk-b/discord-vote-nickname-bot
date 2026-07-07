@@ -52,7 +52,7 @@ async function execute(interaction) {
 
   const messageTitles = {
     info: 'Інформація 🔵',
-    critical: 'Критично ⚫',
+    critical: 'Критична ⚫',
     normal: 'Звичайна 🟢',
     medium: 'Середня 🟡',
     high: 'Важлива 🔴',
@@ -70,8 +70,8 @@ async function execute(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(colors[importance])
-    .setTitle(`Новий запис ${messageTitles[importance]}`)
-    .setDescription(note)
+    .setTitle(note)
+    .setDescription(`Новий запис. Важливість ${messageTitles[importance]}`)
     .addFields(
       {
         name: 'Автор',
