@@ -38,7 +38,6 @@ module.exports = {
         // type: ChannelType.GuildText,
         reason: 'Nickname voting'
       })
-      console.log(`Thread channel ${newThread.name}`)
 
       await newThread.send({
         content: `

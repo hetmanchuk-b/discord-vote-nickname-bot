@@ -1,9 +1,9 @@
 const {ActionRowBuilder, ButtonBuilder, ButtonStyle} = require('discord.js')
 
-function buildButtons(selectedCount) {
+function buildButtons(selectedCount, availableCount) {
   const row = new ActionRowBuilder()
 
-  if (selectedCount < 10) {
+  if (availableCount && selectedCount < 10) {
     row.addComponents(
       new ButtonBuilder()
         .setCustomId('shuffle:roll')
@@ -38,7 +38,7 @@ function renderContent(selectedVariants) {
     '🎲 Випадкові варіанти',
     '',
     selectedVariants.length
-      ? selectedVariants.map((v, i) => `${i + 1}. ${v}`).join('\n')
+      ? selectedVariants.map((v, i) => `${i + 1}. ${v.text} (${v.reactionCount} 👍)`).join('\n')
       : '_Поки що нічого не обрано_',
   ].join('\n');
 }

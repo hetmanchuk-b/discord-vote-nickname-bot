@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags} = require('discord.js');
-const fetchAllVariants = require('../../utils/fetch-all-variants.js');
+const fetchAllVariantsWithReactions = require('../../utils/fetch-all-variants-with-reactions.js');
 const getUniqueVariants = require('../../utils/get-unique-variants.js');
 const {buildButtons, renderContent} = require('../../utils/shuffle-session.js');
 
@@ -20,14 +20,14 @@ async function execute(interaction) {
   await interaction.deferReply()
 
   try {
-    const messages = await fetchAllVariants(interaction.channel)
+    const messages = await fetchAllVariantsWithReactions(interaction.channel)
     const variants = getUniqueVariants(messages)
 
     if (variants.length < 2) return interaction.editReply('❌ Потрібно щонайменше 2 варіанта.')
 
     const reply = await interaction.editReply({
       content: renderContent([]),
-      components: buildButtons(0),
+      components: buildButtons(0, variants.length),
       fetchReply: true
     })
 

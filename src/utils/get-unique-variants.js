@@ -1,19 +1,24 @@
-module.exports = function (messages) {
-  const variants = new Map()
+module.exports = function getUniqueVariants(messages) {
+  const variants = new Map();
 
-  for (const message of messages) {
-    const variant = message.content.trim()
+  for (const { message, reactionCount } of messages) {
+    const variant = message.content.trim();
 
-    if (!variant) continue
+    if (!variant) continue;
 
-    const normalized = variant.trim()
+    const normalized = variant
       .replace(/\s+/g, ' ')
-      .toLocaleLowerCase()
+      .toLocaleLowerCase();
 
-    if (!variants.has(normalized)) {
-      variants.set(normalized, variant)
+    const existing = variants.get(normalized);
+
+    if (!existing || reactionCount > existing.reactionCount) {
+      variants.set(normalized, {
+        text: variant,
+        reactionCount,
+      });
     }
   }
 
-  return [...variants.values()]
-}
+  return [...variants.values()];
+};

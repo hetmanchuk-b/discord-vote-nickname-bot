@@ -61,14 +61,42 @@ async function execute(interaction) {
           })
         }
 
-        const index = Math.floor(Math.random() * state.availableVariants.length)
-        const [variant] = state.availableVariants.splice(index, 1)
+        if (state.availableVariants.length === 0) {
+          return interaction.reply({
+            content: '❌ Варіанти закінчилися.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
 
-        state.selectedVariants.push(variant)
+        const weights = state.availableVariants.map(
+          v => v.reactionCount + 1
+        );
+
+        const totalWeight = weights.reduce(
+          (sum, weight) => sum + weight,
+          0
+        );
+
+        let random = Math.random() * totalWeight;
+
+        let index = 0;
+
+        for (let i = 0; i < weights.length; i++) {
+          random -= weights[i];
+
+          if (random < 0) {
+            index = i;
+            break;
+          }
+        }
+
+        const [variant] = state.availableVariants.splice(index, 1);
+
+        state.selectedVariants.push(variant);
 
         await interaction.update({
           content: renderContent(state.selectedVariants),
-          components: buildButtons(state.selectedVariants.length),
+          components: buildButtons(state.selectedVariants.length, state.availableVariants.length),
         })
 
         break
@@ -90,7 +118,7 @@ async function execute(interaction) {
 
         await interaction.update({
           content: renderContent(state.selectedVariants),
-          components: buildButtons(state.selectedVariants.length),
+          components: buildButtons(state.selectedVariants.length, state.availableVariants.length),
         })
 
         break
@@ -116,7 +144,7 @@ async function execute(interaction) {
             question: {
               text: '🏆 Оберіть найкращий варіант нікнейму',
             },
-            answers: state.selectedVariants.map((variant) => ({text: variant})),
+            answers: state.selectedVariants.map((variant) => ({text: variant.text})),
             allowMultiselect: false,
             duration: 24
           }
