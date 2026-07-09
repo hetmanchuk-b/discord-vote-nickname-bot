@@ -11,14 +11,17 @@ const data = new SlashCommandBuilder()
     return option
       .setName('importance')
       .setDescription('Важливість запису')
-      .setRequired(true)
+      .setRequired(false)
       .addChoices(
-        { name: '🔵 Інформація', value: 'info' },
-        { name: '⚫ Критично', value: 'critical' },
-        { name: '🟢 Звичайна', value: 'normal' },
-        { name: '🟡 Середня', value: 'medium' },
-        { name: '🔴 Важлива', value: 'high' },
+        { name: 'Інформація 🔵', value: 'info' },
+        { name: 'Критично ⚫', value: 'critical' },
+        { name: 'Звичайна 🟢', value: 'normal' },
+        { name: 'Середня 🟡', value: 'medium' },
+        { name: 'Важлива 🔴', value: 'high' },
       )
+  })
+  .addStringOption((option) => {
+    return option.setName('cite-author').setDescription('Автор цитати?').setRequired(false)
   })
 
 async function execute(interaction) {
@@ -41,6 +44,7 @@ async function execute(interaction) {
   }
 
   const importance = interaction.options.getString('importance') ?? 'normal'
+  const citeAuthor = interaction.options.getString('cite-author') ?? null
 
   const colors = {
     info: 0x699BF5,
@@ -51,11 +55,11 @@ async function execute(interaction) {
   }
 
   const messageTitles = {
-    info: 'Інформація 🔵',
-    critical: 'Критична ⚫',
-    normal: 'Звичайна 🟢',
-    medium: 'Середня 🟡',
-    high: 'Важлива 🔴',
+    info: '🔵 Інформація',
+    critical: '⚫ Критично',
+    normal: '🟢 Звичайний',
+    medium: '🟡 Середній',
+    high: '🔴 Важливо',
   }
 
   const now = new Date()
@@ -70,11 +74,11 @@ async function execute(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(colors[importance])
-    .setTitle(note)
-    .setDescription(`Новий запис. Важливість ${messageTitles[importance]}`)
+    .setTitle(`${note} ${citeAuthor ? `© ${citeAuthor}` : ''}`)
+    .setDescription(`📝 ${messageTitles[importance]}`)
     .addFields(
       {
-        name: 'Автор',
+        name: 'Автор запису',
         value: `${interaction.user}`,
         inline: true
       },
