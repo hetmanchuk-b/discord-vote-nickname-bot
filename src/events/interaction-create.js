@@ -1,10 +1,15 @@
 const { Events, MessageFlags, Collection} = require('discord.js');
+const {useMainPlayer} = require('discord-player')
 
 const {buildButtons, renderContent} = require('../utils/shuffle-session.js');
 
 async function execute(interaction) {
   if (interaction.isChatInputCommand()) {
     const command = interaction.client.commands.get(interaction.commandName);
+    const player = useMainPlayer()
+    const data = {
+      guild: interaction.guild,
+    }
 
     if (!command) {
       console.error(`No command matching ${interaction.commandName} was found.`);
@@ -35,7 +40,8 @@ async function execute(interaction) {
     setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);
 
     try {
-      await command.execute(interaction);
+      // await interaction.deferReply();
+      await player.context.provide(data, () => command.execute(interaction))
     } catch (error) {
       console.error(error);
       if (interaction.replied || interaction.deferred) {
