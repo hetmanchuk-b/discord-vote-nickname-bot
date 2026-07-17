@@ -39,7 +39,7 @@ async function execute(interaction) {
   try {
     const result = await player.play(voiceChannel, query, {
       nodeOptions: {
-        metadata: {channel: interaction.channel}
+        metadata: {channel: interaction.channel},
       }
     })
 
