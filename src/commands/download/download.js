@@ -3,11 +3,11 @@ const MediaDownloader = require('media-downloader-ez');
 
 const data = new SlashCommandBuilder()
   .setName('dw')
-  .setDescription('Download media')
+  .setDescription('Download video')
   .addStringOption((option) =>
     option
       .setName('url')
-      .setDescription('Media link')
+      .setDescription('Video link')
       .setRequired(true)
   );
 
@@ -31,7 +31,14 @@ async function execute(interaction) {
 
   if (!MediaDownloader.isVideoLink(url)) {
     return interaction.reply({
-      content: 'Please specify a video URL from Instagram, YouTube, X, TikTok, Facebook...',
+      content: 'Please specify a video URL from Instagram, X, TikTok, Facebook...',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (url.includes('youtube') || url.includes('youtu.be')) {
+    return interaction.reply({
+      content: 'Cannot download YouTube videos',
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -48,7 +55,7 @@ async function execute(interaction) {
   } catch (error) {
     console.error(error);
     try {
-      await interaction.editReply({ content: '❌ Error downloading' });
+      await interaction.editReply({ content: `❌ Error downloading: ${error.message}` });
     } catch (e) {
       console.error('Failed to edit reply:', e);
     }
