@@ -23,6 +23,12 @@ const data = new SlashCommandBuilder()
   .addStringOption((option) => {
     return option.setName('cite-author').setDescription('Автор цитати?').setRequired(false)
   })
+  .addStringOption((option) => {
+    return option
+      .setName('image-url')
+      .setDescription('URL изображения для архива.')
+      .setRequired(false)
+  })
 
 async function execute(interaction) {
   const guild = interaction.guild
@@ -45,6 +51,7 @@ async function execute(interaction) {
 
   const importance = interaction.options.getString('importance') ?? 'normal'
   const citeAuthor = interaction.options.getString('cite-author') ?? null
+  const imageUrl = interaction.options.getString('image-url') ?? null
 
   const colors = {
     info: 0x699BF5,
@@ -76,6 +83,7 @@ async function execute(interaction) {
     .setColor(colors[importance])
     .setTitle(`${note} ${citeAuthor ? `© ${citeAuthor}` : ''}`)
     .setDescription(`📝 ${messageTitles[importance]}`)
+    .setImage(imageUrl)
     .addFields(
       {
         name: 'Автор запису',
