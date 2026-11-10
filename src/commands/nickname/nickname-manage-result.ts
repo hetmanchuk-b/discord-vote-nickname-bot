@@ -1,13 +1,15 @@
-const {SlashCommandBuilder, PermissionFlagsBits} = require("discord.js");
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import type { ChatInputCommandInteraction, Message } from 'discord.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('nickname-manage-result')
   .setDescription('Застосувати вибраний нікнейм')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames)
 
-async function execute(interaction) {
+async function execute(interaction: ChatInputCommandInteraction) {
   if (!interaction.isChatInputCommand()) return;
-  if (!interaction.channel.isThread()) {
+  if (!interaction.guild || !interaction.channel?.isThread()) {
     return interaction.reply({
       content: "❌ Команду можна використовувати тільки в гілках",
     })
@@ -20,14 +22,15 @@ async function execute(interaction) {
     const thread = interaction.channel
     const pinned = await thread.messages.fetchPins();
 
-    const metadataMessage = pinned.items[0].message
+    const metadataMessage = pinned.items[0]?.message
 
-    const targetUserId = metadataMessage.content.match(/USER_ID:(\d+)/)?.[1];
+    const targetUserId = metadataMessage?.content.match(/USER_ID:(\d+)/)?.[1];
+    if (!targetUserId) return interaction.editReply('❌ Не знайдено користувача для зміни нікнейму.');
 
     await interaction.editReply('🏆 Шукаю голосування o(*￣▽￣*)ブ')
     // Find poll message
-    let pollMessage = null
-    let before = null
+    let pollMessage: Message | null = null
+    let before: string | undefined;
 
     while (true) {
       const fetched = await thread.messages.fetch({limit: 100, ...(before && { before })});
@@ -37,7 +40,7 @@ async function execute(interaction) {
       before = fetched.lastKey();
     }
 
-    if (!pollMessage) {
+    if (!pollMessage?.poll) {
       return interaction.editReply("❌ Голосування не знайдено.");
     }
 
@@ -49,7 +52,8 @@ async function execute(interaction) {
     }
 
     // Refetch updated result
-    const updatedPollMessage = await thread.messages.fetch(pollMessage.id, {force: true})
+    const updatedPollMessage = await thread.messages.fetch({ message: pollMessage.id, force: true })
+    if (!updatedPollMessage.poll) return interaction.editReply('❌ Голосування не знайдено.');
     const answers = Array.from(updatedPollMessage.poll.answers.values())
 
     const maxVotes = Math.max(...answers.map(answer => answer.voteCount));
@@ -103,4 +107,4 @@ async function execute(interaction) {
   }
 }
 
-module.exports = {data, execute}
+export default { data, execute } satisfies Command;

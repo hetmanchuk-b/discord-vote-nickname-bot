@@ -1,4 +1,6 @@
-const { SlashCommandBuilder } = require('discord.js');
+import { SlashCommandBuilder } from 'discord.js';
+import type { ChatInputCommandInteraction } from 'discord.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('yok')
@@ -16,7 +18,7 @@ const data = new SlashCommandBuilder()
       .setRequired(false)
   );
 
-async function execute(interaction) {
+async function execute(interaction: ChatInputCommandInteraction) {
   const user =
     interaction.options.getUser('user') ?? interaction.user;
 
@@ -28,4 +30,4 @@ async function execute(interaction) {
   });
 }
 
-module.exports = { data, execute };
+export default { data, execute } satisfies Command;

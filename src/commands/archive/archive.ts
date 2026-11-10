@@ -1,5 +1,7 @@
-const {SlashCommandBuilder, MessageFlags, EmbedBuilder} = require("discord.js");
-const {ARCHIVE_NOTES_THREAD_ID} = require("../../utils/constants.js");
+import { SlashCommandBuilder, MessageFlags, EmbedBuilder } from 'discord.js';
+import type { ChatInputCommandInteraction } from 'discord.js';
+import { ARCHIVE_NOTES_THREAD_ID } from '../../utils/constants.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('archive')
@@ -30,7 +32,7 @@ const data = new SlashCommandBuilder()
       .setRequired(false)
   })
 
-async function execute(interaction) {
+async function execute(interaction: ChatInputCommandInteraction) {
   const guild = interaction.guild
   if (!guild) {
     return interaction.reply({
@@ -39,7 +41,7 @@ async function execute(interaction) {
     })
   }
 
-  const note = interaction.options.getString('note')
+  const note = interaction.options.getString('note', true)
   const thread = await guild.channels.fetch(ARCHIVE_NOTES_THREAD_ID).catch(() => null)
 
   if (!thread || !thread.isThread()) {
@@ -49,7 +51,8 @@ async function execute(interaction) {
     })
   }
 
-  const importance = interaction.options.getString('importance') ?? 'normal'
+  const requestedImportance = interaction.options.getString('importance') ?? 'normal'
+  const importance = isImportance(requestedImportance) ? requestedImportance : 'normal'
   const citeAuthor = interaction.options.getString('cite-author') ?? null
   const imageUrl = interaction.options.getString('image-url') ?? null
 
@@ -111,4 +114,10 @@ async function execute(interaction) {
   });
 }
 
-module.exports = {data, execute}
+type Importance = 'info' | 'critical' | 'normal' | 'medium' | 'high';
+
+function isImportance(value: string): value is Importance {
+  return ['info', 'critical', 'normal', 'medium', 'high'].includes(value);
+}
+
+export default { data, execute } satisfies Command;

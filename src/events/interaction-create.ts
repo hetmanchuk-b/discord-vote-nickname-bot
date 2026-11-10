@@ -1,8 +1,8 @@
-const { Events, MessageFlags, Collection} = require('discord.js');
+import { Events, MessageFlags, Collection } from 'discord.js';
+import type { Interaction } from 'discord.js';
+import { buildButtons, renderContent } from '../utils/shuffle-session.js';
 
-const {buildButtons, renderContent} = require('../utils/shuffle-session.js');
-
-async function execute(interaction) {
+async function execute(interaction: Interaction) {
   if (interaction.isChatInputCommand()) {
     const command = interaction.client.commands.get(interaction.commandName);
 
@@ -13,17 +13,16 @@ async function execute(interaction) {
 
     const { cooldowns } = interaction.client;
 
-    if (!cooldowns.has(command.data.name)) {
-      cooldowns.set(command.data.name, new Collection());
-    }
+    const timestamps = cooldowns.get(command.data.name) ?? new Collection<string, number>();
+    cooldowns.set(command.data.name, timestamps);
 
     const now = Date.now();
-    const timestamps = cooldowns.get(command.data.name);
     const defaultCooldownDuration = 3;
     const cooldownAmount = (command.cooldown ?? defaultCooldownDuration) * 1_000;
 
-    if (timestamps.has(interaction.user.id)) {
-      const expirationTime = timestamps.get(interaction.user.id) + cooldownAmount;
+    const previousTimestamp = timestamps.get(interaction.user.id);
+    if (previousTimestamp !== undefined) {
+      const expirationTime = previousTimestamp + cooldownAmount;
       const expiredTimestamp = Math.round(expirationTime / 1_000);
       return interaction.reply({
         content: `Please wait, you are on a cooldown for \`${command.data.name}\`. You can use it again <t:${expiredTimestamp}:R>.`,
@@ -36,7 +35,7 @@ async function execute(interaction) {
 
     try {
       // await interaction.deferReply();
-      command.execute(interaction)
+      await command.execute(interaction)
     } catch (error) {
       console.error(error);
       if (interaction.replied || interaction.deferred) {
@@ -136,9 +135,11 @@ async function execute(interaction) {
         if (state.selectedVariants.length < 5) {
           return interaction.reply({
             content: '❌ Потрібно мінімум 5 варіантів',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
+
+        if (!interaction.channel?.isSendable()) return;
 
         await interaction.channel.send({
           poll: {
@@ -166,7 +167,7 @@ async function execute(interaction) {
   }
 }
 
-module.exports = {
-  name: Events.InteractionCreate,
+export default {
+  name: Events.InteractionCreate as const,
   execute,
 };

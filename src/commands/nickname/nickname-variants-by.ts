@@ -1,18 +1,19 @@
-const {SlashCommandBuilder, AttachmentBuilder, MessageFlags} = require("discord.js");
-const fetchAllVariants = require("../../utils/fetch-all-variants.js");
-const groupMessages = require("../../utils/group-messages.js");
-const {MAX_VARIANTS_PER_USER} = require("../../utils/constants.js");
+import { SlashCommandBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
+import fetchAllVariants from '../../utils/fetch-all-variants.js';
+import groupMessages from '../../utils/group-messages.js';
+import { MAX_VARIANTS_PER_USER } from '../../utils/constants.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('nickname-variants-by')
   .setDescription('Показати варіанти по користувачах')
 
-module.exports = {
+export default {
   data,
   async execute(interaction) {
     if (!interaction.isChatInputCommand()) return;
 
-    if (!interaction.channel.isThread()) {
+    if (!interaction.channel?.isThread()) {
       return interaction.reply({
         content: '❌ Команду можна використовувати тільки в гілках',
         flags: MessageFlags.Ephemeral
@@ -48,4 +49,4 @@ module.exports = {
       await interaction.editReply("❌ Помилка при отриманні варіантів.");
     }
   }
-}
+} satisfies Command;

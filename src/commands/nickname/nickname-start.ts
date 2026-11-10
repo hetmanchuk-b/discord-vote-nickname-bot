@@ -1,4 +1,5 @@
-const {SlashCommandBuilder, MessageFlags} = require("discord.js");
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('nickname-start')
@@ -7,7 +8,7 @@ const data = new SlashCommandBuilder()
     return option.setName('target').setDescription('Кому обирати нікнейм?').setRequired(true)
   })
 
-module.exports = {
+export default {
   data,
   async execute(interaction) {
     const guild = interaction.guild
@@ -17,15 +18,15 @@ module.exports = {
         flags: MessageFlags.Ephemeral
       })
     }
-    if (interaction.channel.isThread()) {
+    if (interaction.channel?.isThread()) {
       return interaction.reply({
         content: "❌ Команда недоступна в гілках",
         flags: MessageFlags.Ephemeral
       })
     }
-    const target = interaction.options.getUser('target')
+    const target = interaction.options.getUser('target', true)
     const channel = interaction.channel
-    if (!channel.isTextBased()) {
+    if (!channel || !('threads' in channel)) {
       return interaction.reply({
         content: '❌ Команда доступна лише в текстовому каналі'
       })
@@ -63,4 +64,4 @@ module.exports = {
 
     await interaction.reply(`Обираємо нікнейм для <@${target.id}>`)
   }
-}
+} satisfies Command;

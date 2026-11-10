@@ -1,5 +1,7 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
-const MediaDownloader = require('media-downloader-ez');
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import type { ChatInputCommandInteraction, Message } from 'discord.js';
+import MediaDownloader from 'media-downloader-ez';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('dw')
@@ -11,7 +13,7 @@ const data = new SlashCommandBuilder()
       .setRequired(true)
   );
 
-async function execute(interaction) {
+async function execute(interaction: ChatInputCommandInteraction) {
   const guild = interaction.guild;
   if (!guild) {
     return interaction.reply({
@@ -20,7 +22,7 @@ async function execute(interaction) {
     });
   }
 
-  if (interaction.channel.isThread()) {
+  if (interaction.channel?.isThread()) {
     return interaction.reply({
       content: '❌ Команда недоступна в гілках',
       flags: MessageFlags.Ephemeral,
@@ -54,8 +56,9 @@ async function execute(interaction) {
     });
   } catch (error) {
     console.error(error);
+    const message = error instanceof Error ? error.message : String(error);
     try {
-      await interaction.editReply({ content: `❌ Error downloading: ${error.message}` });
+      await interaction.editReply({ content: `❌ Error downloading: ${message}` });
     } catch (e) {
       console.error('Failed to edit reply:', e);
     }
@@ -63,11 +66,11 @@ async function execute(interaction) {
   }
 }
 
-function scheduleDelete(message, delay = 3000) {
+function scheduleDelete(message: Message | null, delay = 3000) {
   if (!message) return;
   setTimeout(() => {
     message.delete().catch(() => {});
   }, delay);
 }
 
-module.exports = { data, execute };
+export default { data, execute } satisfies Command;

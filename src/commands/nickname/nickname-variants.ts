@@ -1,15 +1,16 @@
-const {SlashCommandBuilder, AttachmentBuilder, MessageFlags} = require("discord.js");
-const fetchAllVariants = require("../../utils/fetch-all-variants.js");
+import { SlashCommandBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
+import fetchAllVariants from '../../utils/fetch-all-variants.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName("nickname-variants")
   .setDescription("Показати всі варіанти")
 
-module.exports = {
+export default {
   data,
   async execute(interaction) {
     if (!interaction.isChatInputCommand()) return;
-    if (!interaction.channel.isThread()) {
+    if (!interaction.channel?.isThread()) {
       return interaction.reply({
         content: "❌ Команду можна використовувати тільки в гілках",
         flags: MessageFlags.Ephemeral
@@ -39,4 +40,4 @@ module.exports = {
     }
 
   }
-}
+} satisfies Command;

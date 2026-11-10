@@ -1,7 +1,8 @@
-const {ActionRowBuilder, ButtonBuilder, ButtonStyle} = require('discord.js')
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import type { Variant } from '../types.js';
 
-function buildButtons(selectedCount, availableCount) {
-  const row = new ActionRowBuilder()
+export function buildButtons(selectedCount: number, availableCount: number) {
+  const row = new ActionRowBuilder<ButtonBuilder>()
 
   if (availableCount && selectedCount < 10) {
     row.addComponents(
@@ -33,7 +34,7 @@ function buildButtons(selectedCount, availableCount) {
   return [row];
 }
 
-function renderContent(selectedVariants) {
+export function renderContent(selectedVariants: Variant[]): string {
   return [
     '🎲 Випадкові варіанти',
     '',
@@ -42,8 +43,3 @@ function renderContent(selectedVariants) {
       : '_Поки що нічого не обрано_',
   ].join('\n');
 }
-
-module.exports = {
-  buildButtons,
-  renderContent,
-};

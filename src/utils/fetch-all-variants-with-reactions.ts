@@ -1,6 +1,9 @@
-module.exports = async function fetchAllVariantsWithReactions(thread) {
-  const variants = [];
-  let before;
+import type { ThreadChannel } from 'discord.js';
+import type { MessageWithReactions } from '../types.js';
+
+export default async function fetchAllVariantsWithReactions(thread: ThreadChannel): Promise<MessageWithReactions[]> {
+  const variants: MessageWithReactions[] = [];
+  let before: string | undefined;
 
   while (true) {
     const fetched = await thread.messages.fetch({limit: 100, ...(before && { before })});

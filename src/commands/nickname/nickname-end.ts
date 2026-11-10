@@ -1,16 +1,18 @@
-const { SlashCommandBuilder, MessageFlags} = require('discord.js');
-const fetchAllVariantsWithReactions = require('../../utils/fetch-all-variants-with-reactions.js');
-const getUniqueVariants = require('../../utils/get-unique-variants.js');
-const {buildButtons, renderContent} = require('../../utils/shuffle-session.js');
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import type { ChatInputCommandInteraction } from 'discord.js';
+import fetchAllVariantsWithReactions from '../../utils/fetch-all-variants-with-reactions.js';
+import getUniqueVariants from '../../utils/get-unique-variants.js';
+import { buildButtons, renderContent } from '../../utils/shuffle-session.js';
+import type { Command } from '../../types.js';
 
 const data = new SlashCommandBuilder()
   .setName('nickname-end')
   .setDescription('Дістати випадковий варіант')
 
-async function execute(interaction) {
+async function execute(interaction: ChatInputCommandInteraction) {
   if (!interaction.isChatInputCommand()) return
 
-  if (!interaction.channel.isThread()) {
+  if (!interaction.channel?.isThread()) {
     return interaction.reply({
       content: '❌ Команду можна використовувати тільки в гілках',
       flags: MessageFlags.Ephemeral
@@ -27,8 +29,7 @@ async function execute(interaction) {
 
     const reply = await interaction.editReply({
       content: renderContent([]),
-      components: buildButtons(0, variants.length),
-      fetchReply: true
+      components: buildButtons(0, variants.length)
     })
 
     interaction.client.shuffleSessions.set(reply.id, {
@@ -43,4 +44,4 @@ async function execute(interaction) {
   }
 }
 
-module.exports = {data, execute}
+export default { data, execute } satisfies Command;
