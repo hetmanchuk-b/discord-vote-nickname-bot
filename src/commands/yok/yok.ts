@@ -24,9 +24,9 @@ async function execute(interaction: ChatInputCommandInteraction) {
 
   const text = interaction.options.getString('text');
   const percent = Math.floor(Math.random() * 101);
-  const barWidth = 20;
+  const barWidth = 32;
   const filled = Math.round((percent / 100) * barWidth);
-  const progressBar = `[${'#'.repeat(filled)}${'-'.repeat(barWidth - filled)}]`;
+  const progressBar = `[${'▓'.repeat(filled)}${'░'.repeat(barWidth - filled)}]`;
 
   await interaction.reply({
     content: `${user} **${text}** на **${percent}%**\n\`${progressBar}\``,
