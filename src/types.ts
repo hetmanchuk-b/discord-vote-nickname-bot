@@ -1,4 +1,5 @@
 import type {
+  ButtonInteraction,
   ChatInputCommandInteraction,
   Client,
   Collection,
@@ -12,6 +13,8 @@ export interface Command {
   cooldown?: number;
   execute(interaction: ChatInputCommandInteraction): Promise<unknown>;
 }
+
+export type ButtonHandler = (interaction: ButtonInteraction) => Promise<unknown>;
 
 export interface Variant {
   text: string;

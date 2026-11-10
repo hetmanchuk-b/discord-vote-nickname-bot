@@ -80,11 +80,29 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 ### Source layout
 
 - `src/commands/` — slash commands, each checked against the shared `Command` interface
-- `src/events/` — ready and interaction handlers
+- `src/events/` — ready handler and interaction dispatcher
+- `src/interactions/` — slash-command execution and cooldown handling
+- `src/buttons/` — button registry and feature-specific handlers
 - `src/utils/` — message fetching, deduplication, grouping, and finalist selection
 - `src/types.ts` — command, variant, session, and Discord client collection types
 - `src/vendor/` — declarations for the untyped media downloader dependency
 - `test/` — offline tests against the compiled output (no Discord login required)
+
+### Adding buttons
+
+Define handlers in a feature module under `src/buttons/`, keyed by exact Discord `customId` values:
+
+```typescript
+import type { ButtonHandler } from '../types.js';
+
+export const exampleButtons = {
+  'example:hello': async interaction => {
+    await interaction.reply('Hello!');
+  },
+} satisfies Record<string, ButtonHandler>;
+```
+
+Import the group into `src/buttons/index.ts` and spread it into the registry alongside `shuffleButtons`. Each custom ID must be unique. No changes to `src/events/interaction-create.ts` are needed. Shuffle handlers share session lookup and selection rendering within their own module.
 
 ### Other commands
 
