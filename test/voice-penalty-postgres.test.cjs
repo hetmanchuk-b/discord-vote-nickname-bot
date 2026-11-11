@@ -29,13 +29,13 @@ async function fixture(callback){
     await db.reputationGuild.deleteMany({where:{guildId}});
   }finally{await db.$disconnect();}}
 }
-async function active(f,amount=50){
-  const poll=await f.store.reserve({...f.request,amount});
+async function active(f,amount=50,kind='penalty'){
+  const poll=await f.store.reserve({...f.request,amount,kind});
   const at=new Date();
   return f.store.activate(poll.id,f.guildId,at,{at,userIds:[target,caller,other,fourth]});
 }
 let sequence=100000000000000000n;
-const vote=(f,poll,userId,yes)=>f.store.vote({interactionId:String(++sequence),id:poll.id,guildId:f.guildId,textChannelId:poll.textChannelId,messageId:poll.messageId,userId,yes});
+const vote=(f,poll,userId,yes)=>f.store.vote({interactionId:String(++sequence),kind:poll.kind,id:poll.id,guildId:f.guildId,textChannelId:poll.textChannelId,messageId:poll.messageId,userId,yes});
 async function expire(f,poll,userIds){
   const endsAt=new Date(Date.now()-100);
   await f.db.voicePenaltyPoll.update({where:{id:poll.id},data:{startedAt:new Date(endsAt.getTime()-120000),endsAt}});
@@ -186,6 +186,81 @@ test('daily settlement and a fine serialize without losing either balance change
   await f.db.reputationVoiceInterval.create({data:{guildId:f.guildId,userId:target,runId,startedAt:day.start,endedAt:new Date(day.start.getTime()+600000)}});
   const poll=await active(f);await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
   await Promise.all([createSettlementStore(()=>f.db).settleNextClosedDay(f.guildId,new Date()),f.store.finish(poll.id,evidence)]);
+  assert.equal(await balance(f),51);
+}));
+
+test('reward unanimity credits once, permits paused targets, and records the actual ceiling-limited amount',options,async()=>fixture(async f=>{
+  await f.tracking.setTracking(f.guildId,{userId:target,enabled:false},new Date());
+  await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:4980}});
+  const poll=await active(f,100,'reward');await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
+  const results=await Promise.all([f.store.finish(poll.id,evidence),f.store.finish(poll.id,evidence)]);
+  assert.ok(results.every(result=>result.kind==='reward'&&result.actualFine===20&&result.balanceAfter===5000));
+  assert.equal(await balance(f),5000);
+  await assert.rejects(f.store.reserve({...f.request,kind:'reward'}),error=>error.code==='balance-ceiling');
+  const recovered=await createPenaltyStore(()=>f.db).finish(poll.id,null);assert.equal(recovered.actualFine,20);assert.equal(await balance(f),5000);
+}));
+
+test('database rejects legacy penalty-style processing of a reward and rolls back the debit',options,async()=>fixture(async f=>{
+  const poll=await active(f,50,'reward');await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
+  await assert.rejects(f.db.$transaction(async tx=>{
+    await tx.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:50}});
+    await tx.voicePenaltyPoll.update({where:{id:poll.id},data:{status:'succeeded',actualFine:50,balanceAfter:50}});
+  }));
+  assert.equal(await balance(f),100);assert.equal((await f.store.get(poll.id)).status,'active');
+  const result=await f.store.finish(poll.id,evidence);assert.equal(result.balanceBefore,100);assert.equal(result.balanceAfter,150);
+}));
+
+test('rewards can raise a floor balance and do not change attendance/absence streaks',options,async()=>fixture(async f=>{
+  await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:-500,absenceStreak:8}});
+  const poll=await active(f,50,'reward');await vote(f,poll,caller,true);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.actualFine,50);assert.equal(await balance(f),-450);
+  const member=await f.db.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId:f.guildId,userId:target}}});assert.equal(member.absenceStreak,8);
+}));
+
+test('an eligible No vetoes a reward and only eligible No identities are frozen',options,async()=>fixture(async f=>{
+  const poll=await active(f,50,'reward');await vote(f,poll,caller,true);await vote(f,poll,other,false);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[caller,other]));assert.equal(result.status,'failed');assert.deepEqual(result.noVoterIds,[other]);assert.equal(await balance(f),100);
+}));
+
+test('a reward with no eligible Yes fails; missing deadline evidence cancels it',options,async()=>fixture(async f=>{
+  const poll=await active(f,10,'reward');await vote(f,poll,caller,true);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[]));assert.equal(result.status,'failed');assert.equal(await balance(f),100);
+  const next=await f.store.reserve({...f.request,kind:'reward'});const at=new Date();
+  const pending=await f.store.activate(next.id,String(BigInt(f.guildId)+1n),at,{at,userIds:[target,caller,other,fourth]});
+  await vote(f,pending,caller,true);await expire(f,pending,[caller]);
+  assert.equal((await f.store.finish(pending.id,null)).status,'cancelled');assert.equal(await balance(f),100);
+}));
+
+test('penalty and reward reservations share one active-target limit without cooldown',options,async()=>fixture(async f=>{
+  const reward=await f.store.reserve({...f.request,kind:'reward'});
+  await assert.rejects(f.store.reserve(f.request),error=>error.code==='active-poll');
+  await f.store.cancel(reward.id,'test');const penalty=await f.store.reserve(f.request);assert.equal(penalty.kind,'penalty');
+  await assert.rejects(f.store.reserve({...f.request,kind:'reward'}),error=>error.code==='active-poll');
+}));
+
+test('wrong-kind buttons cannot cast a vote against the same saved message',options,async()=>fixture(async f=>{
+  const poll=await active(f,50,'reward');
+  await assert.rejects(f.store.vote({id:poll.id,guildId:f.guildId,textChannelId:poll.textChannelId,messageId:poll.messageId,userId:caller,
+    yes:true,interactionId:'200000000000000001',kind:'penalty'}),error=>error.code==='invalid');
+  assert.equal(await f.db.voicePenaltyVote.count({where:{pollId:poll.id}}),0);
+}));
+
+test('ceiling reached during reward voting cancels rather than claiming a zero-point award',options,async()=>fixture(async f=>{
+  const poll=await active(f,50,'reward');await vote(f,poll,caller,true);
+  await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:5000}});
+  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.reason,'balance-ceiling');assert.equal(result.actualFine,0);
+}));
+
+test('erasure cancels a reward, and daily settlement serializes with a reward without losing either credit',options,async()=>fixture(async f=>{
+  const poll=await active(f,50,'reward');await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
+  await f.tracking.deleteMemberData(f.guildId,target,new Date());assert.equal((await f.store.finish(poll.id,evidence)).status,'cancelled');assert.equal(await balance(f),0);
+  await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{isTracking:true,hasParticipated:true}});
+  const day=kyivDay(kyivDate(new Date(Date.now()-2*86400000))),runId=randomUUID();
+  await f.db.reputationTrackingRun.create({data:{id:runId,guildId:f.guildId,startedAt:day.start,verifiedThrough:day.end}});
+  await f.db.reputationVoiceInterval.create({data:{guildId:f.guildId,userId:target,runId,startedAt:day.start,endedAt:new Date(day.start.getTime()+600000)}});
+  const reserved=await f.store.reserve({...f.request,kind:'reward'});const at=new Date();
+  const next=await f.store.activate(reserved.id,String(BigInt(f.guildId)+1n),at,{at,userIds:[target,caller,other,fourth]});await vote(f,next,caller,true);
+  const snapshot=await expire(f,next,[caller]);await Promise.all([f.store.finish(next.id,snapshot),createSettlementStore(()=>f.db).settleNextClosedDay(f.guildId,new Date())]);
   assert.equal(await balance(f),51);
 }));
 

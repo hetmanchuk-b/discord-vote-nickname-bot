@@ -1,23 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient, VoicePenaltyPoll } from '../generated/prisma/client.js';
 import { getReputationDatabase } from './database.js';
-import { MIN_REPUTATION } from './attendance-rules.js';
+import { MIN_REPUTATION, MAX_REPUTATION } from './attendance-rules.js';
 
 export const PENALTY_DURATION_MS = 120_000;
 // Scheduling tolerance is NOT additional voting time. Larger delays cancel.
 export const PENALTY_DEADLINE_GRACE_MS = 2_000;
 export type PenaltyPoll = VoicePenaltyPoll;
+export type VoiceVoteKind = 'penalty' | 'reward';
 export const penaltyOpen = (poll: PenaltyPoll) => poll.status === 'active' || poll.status === 'creating';
 export class PenaltyError extends Error {
-  constructor(readonly code: 'not-participated' | 'balance-floor' | 'active-poll' | 'invalid' | 'expired' | 'not-ready' | 'not-due') {
+  constructor(readonly code: 'not-participated' | 'balance-floor' | 'balance-ceiling' | 'active-poll' | 'invalid' | 'expired' | 'not-ready' | 'not-due') {
     super('Voice penalty request could not be completed.');
   }
 }
 export interface PenaltyRequest {
-  guildId: string; targetId: string; initiatorId: string; voiceChannelId: string; textChannelId: string; amount: number;
+  guildId: string; targetId: string; initiatorId: string; voiceChannelId: string; textChannelId: string; amount: number; kind?: VoiceVoteKind;
 }
 export interface PenaltyVoteRequest {
-  id: string; guildId: string; textChannelId: string; messageId: string; userId: string; yes: boolean; interactionId: string;
+  id: string; guildId: string; textChannelId: string; messageId: string; userId: string; yes: boolean; interactionId: string; kind?: VoiceVoteKind;
 }
 export interface PenaltyEvidence { at: Date; userIds: readonly string[] }
 export interface PenaltyStore {
@@ -52,7 +53,7 @@ async function target(tx: Prisma.TransactionClient, guildId: string, userId: str
   if (member.hasParticipated || await tx.reputationVoiceInterval.findFirst({ where: { guildId, userId }, select: { id: true } })) return member;
   return null;
 }
-async function close(tx: Prisma.TransactionClient, poll: PenaltyPoll, status: string, reason: string | null, data: { actualFine?: number; balanceAfter?: number; noVoterIds?: string[] } = {}) {
+async function close(tx: Prisma.TransactionClient, poll: PenaltyPoll, status: string, reason: string | null, data: { actualFine?: number; balanceAfter?: number; balanceBefore?: number; noVoterIds?: string[] } = {}) {
   const updated = await tx.voicePenaltyPoll.update({ where: { id: poll.id }, data: {
     status, reason, closedAt: await clock(tx), messageMissing: !poll.messageId, ...data,
   } });
@@ -62,15 +63,17 @@ async function close(tx: Prisma.TransactionClient, poll: PenaltyPoll, status: st
 export function createPenaltyStore(getDatabase: () => PrismaClient = getReputationDatabase): PenaltyStore {
   return {
     async reserve(request) {
-      if (![10,50,100].includes(request.amount) || request.targetId === request.initiatorId) throw new PenaltyError('invalid');
+      const kind = request.kind ?? 'penalty';
+      if (!['penalty','reward'].includes(kind) || ![10,50,100].includes(request.amount) || request.targetId === request.initiatorId) throw new PenaltyError('invalid');
       return getDatabase().$transaction(async tx => {
         await tx.reputationGuild.upsert({ where: { guildId: request.guildId }, create: { guildId: request.guildId }, update: { updatedAt: new Date() } });
         const member = await target(tx, request.guildId, request.targetId);
         if (!member) throw new PenaltyError('not-participated');
-        if (member.balance <= MIN_REPUTATION) throw new PenaltyError('balance-floor');
+        if (kind === 'penalty' && member.balance <= MIN_REPUTATION) throw new PenaltyError('balance-floor');
+        if (kind === 'reward' && member.balance >= MAX_REPUTATION) throw new PenaltyError('balance-ceiling');
         const existing = await tx.voicePenaltyPoll.findFirst({ where: { guildId: request.guildId, targetId: request.targetId, status: { in: ['creating','active'] } }, select: { id: true } });
         if (existing) throw new PenaltyError('active-poll');
-        return tx.voicePenaltyPoll.create({ data: { id: randomUUID(), ...request, createdAt: await clock(tx) } });
+        return tx.voicePenaltyPoll.create({ data: { id: randomUUID(), ...request, kind, createdAt: await clock(tx) } });
       }, transaction);
     },
     get: id => getDatabase().voicePenaltyPoll.findUnique({ where: { id } }),
@@ -114,7 +117,7 @@ export function createPenaltyStore(getDatabase: () => PrismaClient = getReputati
       if (!/^\d{17,20}$/.test(request.interactionId)) throw new PenaltyError('invalid');
       return getDatabase().$transaction(async tx => {
         const poll = await lock(tx,request.id);
-        if (poll.guildId !== request.guildId || poll.textChannelId !== request.textChannelId || poll.messageId !== request.messageId || poll.targetId === request.userId) throw new PenaltyError('invalid');
+        if (poll.kind !== (request.kind ?? 'penalty') || poll.guildId !== request.guildId || poll.textChannelId !== request.textChannelId || poll.messageId !== request.messageId || poll.targetId === request.userId) throw new PenaltyError('invalid');
         if (poll.status === 'creating') throw new PenaltyError('not-ready');
         const updatedAt = await clock(tx);
         if (poll.status !== 'active' || !poll.endsAt || updatedAt >= poll.endsAt) throw new PenaltyError('expired');
@@ -144,11 +147,13 @@ export function createPenaltyStore(getDatabase: () => PrismaClient = getReputati
         const votes = await tx.voicePenaltyVote.findMany({ where: { pollId: id, userId: { in: voters } } });
         const noVoterIds = votes.filter(vote => !vote.yes).map(vote => vote.userId).sort();
         if (noVoterIds.length || !votes.some(vote => vote.yes)) return close(tx,poll,'failed',null,{ noVoterIds });
-        const actualFine = Math.min(poll.amount,member.balance - MIN_REPUTATION);
-        if (actualFine <= 0) return close(tx,poll,'cancelled','balance-floor');
-        const balanceAfter = member.balance - actualFine;
+        const reward = poll.kind === 'reward';
+        // Legacy actualFine stores the positive magnitude for either direction.
+        const actualFine = Math.min(poll.amount,reward ? MAX_REPUTATION - member.balance : member.balance - MIN_REPUTATION);
+        if (actualFine <= 0) return close(tx,poll,'cancelled',reward ? 'balance-ceiling' : 'balance-floor');
+        const balanceAfter = member.balance + (reward ? actualFine : -actualFine);
         await tx.reputationMember.update({ where: { guildId_userId: { guildId: poll.guildId, userId: poll.targetId } }, data: { balance: balanceAfter } });
-        return close(tx,poll,'succeeded',null,{ actualFine, balanceAfter });
+        return close(tx,poll,'succeeded',null,{ actualFine, balanceAfter, balanceBefore: member.balance });
       },transaction);
     },
     async noteAttempt(id) {

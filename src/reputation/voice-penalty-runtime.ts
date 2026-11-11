@@ -1,4 +1,4 @@
-import type { PenaltyEvidence, PenaltyPoll, PenaltyStore, PenaltyVoteRequest } from './voice-penalty-store.js';
+import type { PenaltyEvidence, PenaltyPoll, PenaltyStore, PenaltyVoteRequest, VoiceVoteKind } from './voice-penalty-store.js';
 import { PenaltyError, penaltyOpen } from './voice-penalty-store.js';
 import { renderPenalty } from './voice-penalty-render.js';
 import type { PenaltyPayload } from './voice-penalty-render.js';
@@ -19,7 +19,7 @@ export class PenaltyUserError extends Error {
   constructor(readonly publicMessage: string) { super('Voice penalty validation failed.'); }
 }
 export interface StartPenalty {
-  guildId: string; initiatorId: string; targetId: string; textChannelId: string; amount: number;
+  guildId: string; initiatorId: string; targetId: string; textChannelId: string; amount: number; kind?: VoiceVoteKind;
 }
 export interface VoicePenalties {
   create(request: StartPenalty): Promise<PenaltyPoll>;
@@ -45,7 +45,7 @@ export class PenaltyRuntime implements VoicePenalties {
     if (this.stopped) throw new PenaltyUserError('⌛ Бот завершує роботу. Спробуйте пізніше.');
   }
   private startChannel(request: StartPenalty): string {
-    if (request.targetId === request.initiatorId || ![10,50,100].includes(request.amount)) throw new PenaltyError('invalid');
+    if (!['penalty','reward'].includes(request.kind ?? 'penalty') || request.targetId === request.initiatorId || ![10,50,100].includes(request.amount)) throw new PenaltyError('invalid');
     const channel = this.options.presence.channelFor(request.initiatorId);
     if (!channel || this.options.presence.channelFor(request.targetId) !== channel) throw new PenaltyUserError('❌ Ви та адресат повинні бути в одному звичайному голосовому каналі.');
     const humans = new Set(this.options.presence.humans(channel));
@@ -86,8 +86,8 @@ export class PenaltyRuntime implements VoicePenalties {
   async vote(request: PenaltyVoteRequest): Promise<boolean> {
     this.guild(request.guildId);
     const poll = await this.options.store.get(request.id);
-    if (!poll || poll.guildId !== request.guildId || poll.messageId !== request.messageId || poll.textChannelId !== request.textChannelId) throw new PenaltyError('invalid');
-    if (poll.targetId === request.userId) throw new PenaltyUserError('❌ Адресат штрафу не може голосувати у власному голосуванні.');
+    if (!poll || poll.kind !== (request.kind ?? 'penalty') || poll.guildId !== request.guildId || poll.messageId !== request.messageId || poll.textChannelId !== request.textChannelId) throw new PenaltyError('invalid');
+    if (poll.targetId === request.userId) throw new PenaltyUserError('❌ Адресат не може голосувати у власному голосуванні.');
     if (this.options.presence.channelFor(request.userId) !== poll.voiceChannelId ||
       !this.options.presence.humans(poll.voiceChannelId).includes(request.userId)) throw new PenaltyUserError('❌ Голосувати можуть лише люди в початковому голосовому каналі.');
     return this.options.store.vote(request);
@@ -140,7 +140,7 @@ export class PenaltyRuntime implements VoicePenalties {
     if (this.stopped) return;
     const failures = (this.failures.get(id) ?? 0) + 1;
     this.failures.set(id,failures);
-    console.warn('Could not confirm a voice penalty operation; retrying safely.');
+    console.warn('Could not confirm a voice voting operation; retrying safely.');
     this.later(id,Math.min(5000*2**Math.min(failures-1,4),60_000),()=>{
       if (id === 'refresh') void this.refresh(); else this.drive(id);
     });

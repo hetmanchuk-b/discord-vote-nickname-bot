@@ -23,7 +23,7 @@ Check the intended hosted schema separately:
 npm run db:status
 ```
 
-The original six reputation migrations, including `20261111050000_attendance_rewards`, were applied to the configured hosted database with approval. The newer `20261111060000_warning_history` migration was subsequently applied with explicit approval; status verification confirmed the original seven hosted migrations are applied. The subsequent `20261111070000_voice_penalties` migration was applied with explicit approval; status verification confirmed all eight hosted migrations are up to date. The warning-history migration adds persistent JSON history; the voice-penalty migration adds durable poll/vote tables. Neither adjusts existing balances. The owner confirmed the bot was stopped before the attendance migration. Other installations must review and apply pending migrations before deploying the updated build. Stop the old bot first; it is not compatible with the new attendance/bounded-balance accounting. Existing guilds start attendance accounting on the next full Kyiv day after migration, with fresh streaks; live balances are clamped to −500…5,000 without rewriting published history. Migrations must be reviewed and explicitly applied with `npm run db:migrate` from a trusted checkout. Do not use `migrate reset` or automatic startup migrations.
+The original six reputation migrations, including `20261111050000_attendance_rewards`, were applied to the configured hosted database with approval. The newer `20261111060000_warning_history` migration was subsequently applied with explicit approval; status verification confirmed the original seven hosted migrations are applied. The subsequent `20261111070000_voice_penalties` migration was applied with explicit approval; status verification confirmed the original eight hosted migrations are applied. The subsequent `20261111080000_voice_rewards` migration was applied with explicit approval; status verification confirmed all nine hosted migrations are up to date. It preserves existing balances and penalty history, adds the vote kind/pre-balance audit, and prevents penalty-only binaries from debiting rewards. Stop the old bot before replacing its build and run only one instance. The warning-history migration adds persistent JSON history; the voice-penalty migration adds durable poll/vote tables. Neither adjusts existing balances. The owner confirmed the bot was stopped before the attendance migration. Other installations must review and apply pending migrations before deploying the updated build. Stop the old bot first; it is not compatible with the new attendance/bounded-balance accounting. Existing guilds start attendance accounting on the next full Kyiv day after migration, with fresh streaks; live balances are clamped to −500…5,000 without rewriting published history. Migrations must be reviewed and explicitly applied with `npm run db:migrate` from a trusted checkout. Do not use `migrate reset` or automatic startup migrations.
 
 ## 2. Register slash commands explicitly
 
@@ -33,7 +33,7 @@ Your local `data/config.json` must contain the correct application client ID and
 npm run commands
 ```
 
-This contacts Discord and replaces this application's global command registrations with the **16 commands** in the repository. Do not use another bot application's credentials. Refresh Discord/wait for command propagation if new commands do not appear immediately.
+This contacts Discord and replaces this application's global command registrations with the **17 commands** in the repository. Do not use another bot application's credentials. Refresh Discord/wait for command propagation if new commands do not appear immediately.
 
 Do not put the Discord token in GitHub's backup secrets. The backup workflow does not need it.
 
@@ -96,7 +96,7 @@ Check while background tracking is still disabled:
 - `/reputation` shows a settled balance publicly.
 - `/voice-today` clearly says collection is inactive/unavailable, not that the bot is earning time.
 - `/reputation-off` and `/reputation-on` save only your own preference privately. They do not override the global switch.
-- `/voice-penalty user amount` needs View Channel in the original voice channel and View Channel, Send Messages, Embed Links, Read Message History, and Attach Files at the poll destination. It is an interactive feature independent of the passive tracking flag; test only with consenting members. Real fines take effect immediately at the deadline and are not automatically refunded.
+- `/voice-penalty user amount` and `/voice-reward user amount` need View Channel in the original voice channel and View Channel, Send Messages, Embed Links, Read Message History, and Attach Files at the poll destination. It is an interactive feature independent of the passive tracking flag; test only with consenting members. Real fines take effect immediately at the deadline and are not automatically refunded.
 - Do not confirm `/reputation-delete` on an account whose data you want to keep. It is a real irreversible live-data reset, not a deployment health check.
 
 The code already subscribes to `GuildVoiceStates`; the bot does not join voice or record audio. Keep the Message Content privileged intent enabled for the bot's existing nickname-suggestion features. No new voice-specific privileged-intent toggle is needed.

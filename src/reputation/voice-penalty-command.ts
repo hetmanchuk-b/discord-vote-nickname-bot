@@ -1,6 +1,7 @@
 import { ChannelType, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../types.js';
 import { PenaltyError } from './voice-penalty-store.js';
+import type { VoiceVoteKind } from './voice-penalty-store.js';
 import { PenaltyUserError } from './voice-penalty-runtime.js';
 
 export function penaltyFeedback(error: unknown): string {
@@ -9,6 +10,7 @@ export function penaltyFeedback(error: unknown): string {
     const messages = {
       'not-participated': '❌ Адресат не має підтвердженої участі в обліку репутації або видалив свої дані.',
       'balance-floor': '❌ Баланс адресата вже досяг мінімуму −500.',
+      'balance-ceiling': '❌ Баланс адресата вже досяг максимуму 5 000.',
       'active-poll': '❌ Для цього адресата вже є активне голосування.',
       invalid: '❌ Некоректне голосування, адресат або повідомлення.',
       expired: '⌛ Голосування вже завершилося. Голос не змінено.',
@@ -20,10 +22,13 @@ export function penaltyFeedback(error: unknown): string {
   return '❌ Не вдалося підтвердити дію. Перевірте повідомлення голосування або спробуйте пізніше.';
 }
 
-export const voicePenaltyCommand: Command = {
-  data: new SlashCommandBuilder().setName('voice-penalty').setDescription('Запропонувати штраф учаснику голосового каналу.').setDMPermission(false)
-    .addUserOption(option=>option.setName('user').setDescription('Кому запропонувати штраф?').setRequired(true))
-    .addIntegerOption(option=>option.setName('amount').setDescription('Розмір штрафу.').setRequired(true)
+export function createVoiceVoteCommand(kind: VoiceVoteKind): Command {
+  const reward = kind === 'reward';
+  return {
+  data: new SlashCommandBuilder().setName(reward ? 'voice-reward' : 'voice-penalty')
+    .setDescription(reward ? 'Запропонувати нагороду учаснику голосового каналу.' : 'Запропонувати штраф учаснику голосового каналу.').setDMPermission(false)
+    .addUserOption(option=>option.setName('user').setDescription(reward ? 'Кому запропонувати нагороду?' : 'Кому запропонувати штраф?').setRequired(true))
+    .addIntegerOption(option=>option.setName('amount').setDescription(reward ? 'Розмір нагороди.' : 'Розмір штрафу.').setRequired(true)
       .addChoices({name:'10',value:10},{name:'50',value:50},{name:'100',value:100})),
   cooldown: 0,
   async execute(interaction) {
@@ -32,15 +37,19 @@ export const voicePenaltyCommand: Command = {
     }
     const target = interaction.options.getUser('user',true);
     if (target.bot || interaction.user.bot || target.id === interaction.user.id) {
-      return interaction.reply({content:'❌ Не можна штрафувати ботів або самого себе.',flags:MessageFlags.Ephemeral});
+      return interaction.reply({content:'❌ Не можна обирати ботів або самого себе.',flags:MessageFlags.Ephemeral});
     }
     await interaction.deferReply({flags:MessageFlags.Ephemeral});
     try {
       const poll = await interaction.client.voicePenalties.create({guildId:interaction.guildId,textChannelId:interaction.channelId,
-        initiatorId:interaction.user.id,targetId:target.id,amount:interaction.options.getInteger('amount',true)});
-      return interaction.editReply({content:`${poll.status === 'active' ? '✅ Голосування створено' : '⌛ Голосування скасовано без штрафу'}: https://discord.com/channels/${poll.guildId}/${poll.textChannelId}/${poll.messageId}`,allowedMentions:{parse:[]}});
+        initiatorId:interaction.user.id,targetId:target.id,kind,amount:interaction.options.getInteger('amount',true)});
+      return interaction.editReply({content:`${poll.status === 'active' ? '✅ Голосування створено' : reward ? '⌛ Голосування скасовано без нагороди' : '⌛ Голосування скасовано без штрафу'}: https://discord.com/channels/${poll.guildId}/${poll.textChannelId}/${poll.messageId}`,allowedMentions:{parse:[]}});
     } catch (error) {
       return interaction.editReply({content:penaltyFeedback(error),allowedMentions:{parse:[]}});
     }
   },
-};
+  };
+}
+
+export const voicePenaltyCommand = createVoiceVoteCommand('penalty');
+export const voiceRewardCommand = createVoiceVoteCommand('reward');

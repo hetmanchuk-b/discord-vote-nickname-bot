@@ -55,6 +55,14 @@ Migration `20261111070000_voice_penalties` was applied to the hosted database wi
 
 Verification: all **291 tests** passed with local database integration, including concurrent reservations/finalization, ordered changing choices, floor clamping, deadline eligibility, erased targets, unpublished/published veto privacy, rollback, daily-settlement races, restart/acknowledgement recovery, message identity, and observed presence reconstruction. Type-check, lint, build, schema validation, fresh local migration deployment and schema-diff checks passed. The hosted migration was subsequently applied with explicit approval. No bot deployment, slash-command registration, or live Discord poll was performed by the agent.
 
+## Voice reward extension
+
+`/voice-reward user amount` mirrors `/voice-penalty` with 10/50/100-point awards and a 5,000 ceiling. Both use the same runtime, persistence, 120-second deadline, verified four-human start, ordered/private changeable buttons, final original-channel eligibility, unanimity, restart/cancellation rules, erasure guards, and No-voter-only failure disclosure. Targets cannot vote for themselves, must have prior verified participation, and can be personally paused. Awards are immediate, report their actual ceiling-limited magnitude, and leave attendance counters unchanged. A floor balance may receive rewards; a ceiling balance is rejected/cancelled. Both kinds share the existing unique active-target reservation with no cooldown.
+
+Migration `20261111080000_voice_rewards` was applied to the hosted database with explicit approval; subsequent status verification confirmed all nine migrations are up to date. It adds `kind` (defaulting existing rows to `penalty`) and `balance_before`, without changing balances or historical choices/outcomes. Legacy table/positive-magnitude field names remain; persisted kind determines credit versus debit. The reward-direction constraint requires a valid pre-balance audit and positive bounded credit, preventing a legacy penalty-only binary from successfully debiting a reward. Stop the old bot before deploying the new build; the hosted migration was applied with approval, but no command registration, live Discord vote, or bot deployment was performed for this extension.
+
+All **305 tests** passed with local database integration, including capped/exact-once credits, paused/floor targets, veto/no-Yes/unverified outcomes, cross-kind reservation/button isolation, erasure, settlement races, legacy schema upgrades/history preservation, and rollback of legacy-style reward debits. Build, type-check, lint, schema validation, fresh local migration deployment and schema-diff checks passed.
+
 ## Purpose
 
 Reward members for time connected to server voice channels. The bot tracks connection time, not speech or audio. It does not need to join a voice channel; it must be online and receiving voice-state events.

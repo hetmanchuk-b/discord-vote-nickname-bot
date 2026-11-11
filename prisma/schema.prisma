@@ -222,6 +222,7 @@ model VoicePenaltyPoll {
   textChannelId  String             @map("text_channel_id") @db.VarChar(20)
   messageId      String?            @unique @map("message_id") @db.VarChar(20)
   amount         Int
+  kind           String             @default("penalty") @db.VarChar(8)
   status         String             @default("creating") @db.VarChar(16)
   reason         String?            @db.VarChar(32)
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -230,6 +231,7 @@ model VoicePenaltyPoll {
   closedAt       DateTime?          @map("closed_at") @db.Timestamptz(3)
   actualFine     Int                @default(0) @map("actual_fine")
   balanceAfter   Int?               @map("balance_after")
+  balanceBefore  Int?               @map("balance_before")
   noVoterIds     String[]           @default([]) @map("no_voter_ids")
   publishing     Boolean            @default(false)
   publishedAt    DateTime?          @map("published_at") @db.Timestamptz(3)

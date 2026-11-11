@@ -140,7 +140,7 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         // resurrect them. Published outcomes remain immutable public history.
         await tx.voicePenaltyPoll.updateMany({
           where: { guildId, targetId: userId, publishedAt: null, publishing: false },
-          data: { status: 'cancelled', reason: 'target-erased', actualFine: 0, balanceAfter: null, noVoterIds: [], closedAt: at },
+          data: { status: 'cancelled', reason: 'target-erased', actualFine: 0, balanceAfter: null, balanceBefore: null, noVoterIds: [], closedAt: at },
         });
         await tx.voicePenaltyPoll.updateMany({
           where: { guildId, targetId: userId, messageId: null }, data: { messageMissing: true },

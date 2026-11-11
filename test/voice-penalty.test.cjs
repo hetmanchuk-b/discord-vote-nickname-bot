@@ -6,13 +6,14 @@ const {Collection,ChannelType,MessageFlags}=require('discord.js');
 const {PenaltyRuntime}=require('../dist/reputation/voice-penalty-runtime.js');
 const {PenaltyVoicePresence,createPenaltyTransport}=require('../dist/reputation/voice-penalty-discord.js');
 const {renderPenalty}=require('../dist/reputation/voice-penalty-render.js');
-const {voicePenaltyCommand}=require('../dist/reputation/voice-penalty-command.js');
+const {voicePenaltyCommand,voiceRewardCommand}=require('../dist/reputation/voice-penalty-command.js');
+const {handleButton}=require('../dist/buttons/index.js');
 const {handleVoicePenalty}=require('../dist/buttons/voice-penalty.js');
 const {handleChatInput}=require('../dist/interactions/chat-input.js');
 const id='11111111-1111-4111-8111-111111111111';
 const guildId='999999999999999999',target='111111111111111111',caller='222222222222222222',other='333333333333333333',fourth='444444444444444444';
 const origin=Date.parse('2026-11-11T12:00:00Z');
-const initial=()=>({id,guildId,targetId:target,initiatorId:caller,voiceChannelId:'voice',textChannelId:'text',amount:50,
+const initial=()=>({id,guildId,kind:'penalty',targetId:target,initiatorId:caller,voiceChannelId:'voice',textChannelId:'text',amount:50,
   status:'creating',messageId:null,createdAt:new Date(origin),startedAt:null,endsAt:null,closedAt:null,actualFine:0,balanceAfter:null,noVoterIds:[],publishing:false,publishedAt:null,messageMissing:false});
 function runtimeFixture(t,saved=null,beforeCreate){
   let at=origin;let poll=saved?structuredClone(saved):null;let dbDown=false;let lostAck=false;let verification=true;let found=null;
@@ -193,6 +194,39 @@ test('Discord transport adopts the same marker, validates authors, and reports a
   await assert.rejects(transport.publish({...poll,id:'22222222-2222-4222-8222-222222222222'}));
   assert.equal(events.filter(event=>event==='send').length,1); // No hidden-channel poll.
   guild.channels.fetch=async()=>null;assert.equal(await transport.inspect(active),'missing');
+});
+
+test('voice-reward command shares eligibility and choices but reserves a reward privately',async()=>{
+  const data=voiceRewardCommand.data.toJSON();assert.equal(data.name,'voice-reward');assert.equal(data.dm_permission,false);assert.equal(voiceRewardCommand.cooldown,0);
+  assert.deepEqual(data.options[1].choices.map(choice=>choice.value),[10,50,100]);
+  const replies=[],calls=[];const interaction={guildId,channel:{type:ChannelType.GuildText},channelId:'text',user:{id:caller,bot:false},
+    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>100},client:{voicePenalties:{create:async request=>{calls.push(request);return {...initial(),kind:'reward',status:'active',messageId:'message'};}}},
+    deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
+  await voiceRewardCommand.execute(interaction);assert.equal(calls[0].kind,'reward');assert.equal(calls[0].amount,100);assert.equal(replies[0].flags,MessageFlags.Ephemeral);
+  interaction.options.getUser=()=>({id:caller,bot:false});await voiceRewardCommand.execute(interaction);assert.equal(calls.length,1);assert.equal(replies.at(-1).flags,MessageFlags.Ephemeral);
+});
+
+test('reward rendering uses reward buttons and actual credited amount without exposing Yes identities or totals',()=>{
+  const poll={...initial(),kind:'reward'};const open=renderPenalty(poll);
+  assert.match(open.embeds[0].toJSON().description,/нагороду/);assert.equal(open.components[0].components[0].data.custom_id,`voice-reward:${id}:yes`);
+  const success=renderPenalty({...poll,status:'succeeded',actualFine:20,noVoterIds:[other]});
+  assert.equal(success.embeds[0].toJSON().description,`<@${target}> отримав **20** балів репутації.`);assert.deepEqual(success.allowedMentions,{parse:[]});assert.equal(success.components.length,0);
+  const failed=renderPenalty({...poll,status:'failed',noVoterIds:[other]});assert.match(failed.embeds[0].toJSON().description,/щодо нагороди/);assert.match(failed.embeds[0].toJSON().description,new RegExp(other));assert.doesNotMatch(failed.embeds[0].toJSON().description,new RegExp(caller));
+  const cancelled=renderPenalty({...poll,status:'cancelled',reason:'balance-ceiling'});assert.match(cancelled.embeds[0].toJSON().description,/5 000/);
+});
+
+test('reward polls use the existing durable runtime and final presence workflow',async t=>{
+  const f=runtimeFixture(t);const poll=await f.runtime.create({guildId,initiatorId:caller,targetId:target,textChannelId:'text',amount:50,kind:'reward'});
+  assert.equal(poll.kind,'reward');await assert.rejects(f.runtime.vote({id:poll.id,guildId,textChannelId:'text',messageId:'message',userId:caller,yes:true,interactionId:'200000000000000001',kind:'penalty'}));
+  await f.runtime.vote({id:poll.id,guildId,textChannelId:'text',messageId:'message',userId:caller,yes:true,interactionId:'200000000000000002',kind:'reward'});
+  f.at(120000);f.deadline().callback();await settle();assert.equal(f.finished(),1);assert.match(f.edits[0].embeds[0].toJSON().description,/отримав/);await f.runtime.stop();
+});
+
+test('reward button routing preserves private changeable votes and binds the reward kind',async()=>{
+  const calls=[],replies=[];const interaction={id:'200000000000000001',customId:`voice-reward:${id}:yes`,guildId,channelId:'text',message:{id:'message'},user:{id:caller,bot:false},
+    client:{voicePenalties:{vote:async request=>{calls.push(request);return request.yes;}}},deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
+  await handleButton(interaction);interaction.customId=`voice-reward:${id}:no`;await handleButton(interaction);
+  assert.deepEqual(calls.map(call=>[call.kind,call.id,call.yes]),[['reward',id,true],['reward',id,false]]);assert.equal(replies[0].flags,MessageFlags.Ephemeral);
 });
 
 test('a zero-cooldown command does not create a generic dispatcher cooldown',async()=>{

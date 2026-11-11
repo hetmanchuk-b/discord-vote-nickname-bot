@@ -200,6 +200,7 @@ Apply migration `20261111030000_member_controls` to the intended database before
 | `/reputation-rules` | Earning, settlement, channel, downtime, and deletion rules | Ephemeral |
 | `/reputation-delete` | Caller-only Delete/Cancel confirmation, expiring after 60 seconds | Ephemeral |
 | `/voice-penalty user amount` | Start a 120-second button vote for a 10/50/100-point fine | Public poll; private confirmations |
+| `/voice-reward user amount` | Same voting rules, but award 10/50/100 points, capped at 5,000 | Public poll; private confirmations |
 
 All commands are server-only. User options use Discord's member/user picker, not ambiguous free-text username matching. Bots are not eligible. Public statistics do not ping the selected user. Reading statistics for an unknown member does not create a database record.
 
@@ -248,6 +249,14 @@ Operational warnings combine tracking, settlement, and report-delivery health in
 The poll destination must be visible to the humans in the original voice channel; hidden-channel polls are rejected. The bot needs View Channel in the original voice channel, and View Channel, Send Messages, Embed Links, Read Message History, and Attach Files in the poll's text destination. Polls require `REPUTATION_GUILD_ID` and a healthy database, independently of passive `REPUTATION_TRACKING_ENABLED`; no extra intent or environment secret is needed.
 
 **Hosted schema updated:** `20261111070000_voice_penalties` was applied with approval; all eight migrations are up to date. It adds durable poll/vote tables without adjusting existing balances. Other installations must review and apply pending migrations before deploying this build. Register the new command explicitly with `npm run commands`.
+
+### Voice reward polls
+
+`/voice-reward user:@member amount:10|50|100` mirrors `/voice-penalty`: four humans at the start, same-channel participation, no self-targeting or target voting, changeable private Yes/No choices, a 120-second deadline, and at least one eligible Yes with no eligible No. Tracking pauses do not prevent rewards, but prior verified reputation participation is required. The original channel, restart/deadline safeguards, hidden-channel prevention, permissions, and failed No-voter disclosure are shared rather than implemented separately.
+
+Rewards are added immediately and stop at **5,000**. A requested +100 at 4,980 awards **20**, and the result reports that actual credit. Targets already at 5,000 are rejected privately; reaching the ceiling while voting cancels without claiming a zero-point reward. A −500 balance may receive rewards. Neither vote type changes attendance streaks. There is **one active poll per target across penalties and rewards**, with no cooldown.
+
+**Hosted schema updated:** `20261111080000_voice_rewards` was applied with approval; all nine migrations are up to date. It adds a poll kind (existing rows stay penalties) and a pre-balance audit. It preserves old messages, votes, results and balances. A database direction check prevents a legacy penalty-only binary from debiting a reward. Legacy internal table/field names (`voice_penalty_polls`, `actual_fine`) are retained: `actual_fine` is a positive magnitude, with `kind` defining its sign. Other installations must review and apply pending migrations before deploying this build. Stop the old bot during deployment and register the new command with `npm run commands`.
 
 ### Database tests
 
