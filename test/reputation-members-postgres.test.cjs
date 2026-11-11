@@ -47,7 +47,7 @@ test('unknown-member statistics are default-on and read-only, without fabricatin
   await fixture(async f => {
     assert.equal(await f.members.getBalance(f.guildId, john), 0);
     const stats = await f.members.getToday(f.guildId, john, new Date('2026-11-11T12:00:00Z'));
-    assert.deepEqual(stats, { day: '2026-11-11', eligibleMs: 0, pendingPoints: 0, isTracking: true, incomplete: true });
+    assert.deepEqual(stats, { day: '2026-11-11', eligibleMs: 0, pendingPoints: 0, isTracking: true, incomplete: true, attendanceStreak: 0, absenceStreak: 0 });
     assert.equal(await f.database.reputationMember.count({ where: { guildId: f.guildId } }), 0);
     assert.equal(await f.database.reputationGuild.count({ where: { guildId: f.guildId } }), 0);
   });

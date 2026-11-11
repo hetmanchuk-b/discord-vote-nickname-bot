@@ -95,7 +95,7 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 
 ## Voice reputation
 
-The reputation system includes voice tracking, daily settlement, member controls, daily reports, shared pagination, and operational warnings. Detailed rules are in [`REPUTATION.md`](REPUTATION.md). **Background tracking, settlement, reports, and warnings remain OFF by default.** Backup tooling and guided deployment are in place. Repository secrets, manual backup/verification, and an approved restore into a separate test database have been verified. Scheduling, slash-command deployment, and activation still require explicit setup. Setting a channel or enabling a personal preference does not activate the global tracking flag.
+The reputation system includes voice tracking, daily settlement, attendance bonuses, absence penalties, member controls, daily reports, shared pagination, and operational warnings. Detailed rules are in [`REPUTATION.md`](REPUTATION.md). **Background tracking, settlement, reports, and warnings remain OFF by default.** Backup tooling and guided deployment are in place. Repository secrets, manual backup/verification, and an approved restore into a separate test database have been verified. Scheduling, slash-command deployment, and activation still require explicit setup. Setting a channel or enabling a personal preference does not activate the global tracking flag.
 
 Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime database access uses a lazy pool of at most 3 connections with finite query/connection timeouts. The bot's existing commands and slash-command deployment do not require a database connection.
 
@@ -161,11 +161,24 @@ The tracker:
 
 Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestamp. Status changes feed the reusable warning message described below and are logged without driver credentials.
 
+### Attendance bonuses and absence penalties
+
+- Any positive verified eligible voice time qualifies as attendance, even under 10 minutes. Ordinary +1 per 10 accumulated minutes still applies.
+- Daily attendance bonuses: days 1–2: none; days 3–9: +5/day; days 10–16: +6/day; days 17–23: +7/day; then another +1 per seven days. There is no retroactive payout for days 1–2.
+- Only members who have previously participated can receive absence penalties: missed days 1–7: −5/day; day 8 onward: −10/day. Attendance resets absence; a genuine missed day resets attendance.
+- A personal pause overlapping any part of a Kyiv day, or incomplete observation of that day, freezes both streaks and disables bonuses/penalties. Earlier verified voice time still earns base points. Pauses are persisted so delayed settlement uses historical preferences, not just the current flag.
+- Final reputation is clamped to **−500…5,000**. Streaks still progress at the bounds; daily results store the actual balance change plus the uncapped base/bonus/penalty components.
+- `/voice-today` shows both last-settled streaks. Its pending-point figure is **voice-time points only, before the balance limit**, not a promise of the final bonus/penalty.
+- Daily public reports continue to list positive actual earners only. Penalties are retained in daily accounting and reflected in `/reputation`; they are not public report entries.
+- `/reputation-delete` also clears participation and streak history. Resuming does not enable penalties until new verified participation.
+
+**Hosted schema updated:** `20261111050000_attendance_rewards` was applied with approval while the bot was stopped; all six migrations are up to date. Other installations must review and apply the migration before deploying this build. Existing guilds start the attendance policy on the next full Kyiv day after migration, with fresh streaks and no retroactive attendance adjustments. Existing live balances are clamped; historical snapshots are not rewritten. Keep the old bot stopped during migration/deployment.
+
 ### Daily settlement (gated with tracking)
 
 - Wakes at **00:00 Europe/Kyiv**, accounting for 23/25-hour DST days. Startup catch-up processes missed days in chronological order from the first tracking day—not before activation.
 - Flushes the tracker before closing eligible days, clips midnight-spanning intervals, sums all visits, and awards `floor(eligible milliseconds / 600000)` per member/day. Remainders never carry forward.
-- Uses one transaction for balance increments, unique server/day ledger, member/day results, and the settled-through watermark. Retrying after a timeout or running concurrent workers cannot repay a completed day.
+- Uses one transaction for bounded balance changes, participation/streak updates, unique server/day ledger, member/day results, and the settled-through watermark. Retrying after a timeout or running concurrent workers cannot repay a completed day.
 - Saves each member's post-payout balance so later payouts do not change earlier daily results. Zero-point activity is retained internally but is not an earning report entry.
 - Records coverage duration and incomplete-tracking flags, including partial activation days and fully offline missed days. Previously earned time still settles even if the member has since paused tracking.
 - Prevents delayed checkpoints from inserting new earnings before the settlement watermark.

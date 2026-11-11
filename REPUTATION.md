@@ -23,6 +23,12 @@ Status: **stages 1–6 implemented**, including member commands, reports/warning
 - Step-by-step rollout guidance and the live restore checkpoint are in `BACKUPS.md` and `DEPLOYMENT.md`. Failure notifications, scheduling, command deployment, and activation still require owner setup/approval.
 - Obtain user confirmation before applying further migrations to the hosted database. See `README.md` for stage-1 setup and testing instructions.
 
+## Attendance extension rollout
+
+Attendance bonuses, absence penalties, persistent pause history, bounded balances, and streak displays are implemented. With explicit user approval and confirmation that the bot was stopped, migration `20261111050000_attendance_rewards` was applied to the hosted database. Subsequent status verification confirmed all six migrations are up to date. Existing guilds begin the policy on the next full Kyiv day after migration with zeroed streaks; existing verified participation seeds penalty eligibility, live balances are clamped, and historical awards/report snapshots are preserved. Stop the old bot before migration/deployment. Newly created guilds can begin on their first fully observed day. Checkpoints remain at five minutes.
+
+Verification: all **217 tests** passed with database integration enabled against a disposable local Prisma PostgreSQL-compatible database. This includes a legacy-schema upgrade fixture, day-3/10/17 rewards, day-8 penalties, pause history/zero-duration boundaries, downtime freezes, DST, clamping, transactional rollback/concurrent retries, deletion, and bonus reports with negative balances. Type-check, lint, schema validation, build, fresh migration deployment, and schema-diff checks passed. The hosted attendance migration was subsequently applied with approval; no live Discord test or bot deployment was performed.
+
 ## Purpose
 
 Reward members for time connected to server voice channels. The bot tracks connection time, not speech or audio. It does not need to join a voice channel; it must be online and receiving voice-state events.
@@ -37,7 +43,7 @@ Discord does not provide historical voice-duration reports. Tracking begins when
 - Muted and deafened members still earn reputation.
 - Bot accounts do not earn reputation.
 - Only regular voice channels count; Stage channels and the server's AFK voice channel do **not** count.
-- There is no daily reputation cap and no additional anti-farming rule.
+- There is no daily voice-time cap and no additional anti-farming rule. The final balance is bounded to **−500…5,000**.
 - Incomplete 10-minute blocks are discarded at midnight; they do not carry into the next day.
 - Reputation awards and settled balances are whole integers.
 - Reputation is retained if a member leaves and later rejoins the server.
@@ -45,23 +51,38 @@ Discord does not provide historical voice-duration reports. Tracking begins when
 For each member and day:
 
 ```text
-daily award = floor(verified eligible seconds / 600)
+base points = floor(verified eligible milliseconds / 600000)
+new balance = clamp(old balance + base points + attendance bonus - absence penalty, -500, 5000)
+actual daily points = new balance - old balance
 ```
 
 Time should be accumulated before rounding, not rounded separately for each visit.
 
-| Daily eligible time | Daily award |
+| Daily eligible time | Base points (before bonus/penalty and balance bounds) |
 | --- | ---: |
 | 9 minutes | 0 |
 | 10 minutes | 1 |
 | 29 minutes | 2 |
 | 60 minutes | 6 |
 
+## Attendance and absence
+
+- Any positive verified eligible voice time qualifies as attendance, including sub-ten-minute visits; zero-duration/unverified joins do not.
+- Consecutive qualifying attendance days 1–2 pay no bonus; days 3–9 pay +5/day; days 10–16 pay +6/day; days 17–23 pay +7/day. Thereafter the daily bonus increases by +1 each seven days: `5 + floor((attendance streak - 3) / 7)` for streaks of at least 3. No retroactive payment for days 1–2.
+- Only members with previous verified participation receive absence penalties. Completely observed missed days 1–7 cost −5/day; day 8 onward costs −10/day.
+- Attendance resets absence; a genuine missed day resets attendance. Exempt days freeze both counters and neither advance nor break the streak.
+- Any personal pause overlapping the day, or any missing global observation coverage, exempts the entire day from attendance bonuses/absence penalties. Verified time still earns normal base points. Untracked members receive neither bonus nor penalty for untracked days.
+- Pause intervals are persisted independently of the current preference, allowing historical settlement after a pause/resume/restart without guessing. Zero-length pause intervals do not exempt a day; midnight boundaries are half-open.
+- Verified participation on an exempt day still establishes that the member has participated, without advancing a streak. Read-only statistics and preference commands alone never establish participation.
+- Balance limits apply to the combined daily result. Streak counters keep advancing at either bound. Daily rows preserve base points, theoretical bonus/penalty, actual signed delta, final balance, exemption flag, and resulting streak counters.
+- Deletion clears participation, both streaks and old pause history, retaining only a fresh open pause alongside the disabled identity. Re-enrollment requires new verified voice participation before penalties can apply.
+- Positive actual earners remain the only public report entries, including sub-ten-minute attendance-bonus earners and members whose settled balances are negative. Penalties are reflected in balances and live day records, not added to the public earning list.
+
 ## Daily accounting and settlement
 
 - A day is a calendar day in **Europe/Kyiv**, not a rolling 24-hour window.
 - At **00:00 Europe/Kyiv**, close the previous calendar day.
-- Calculate each member's verified eligible time, convert it into points, and add those points to the permanent balance.
+- Calculate verified base points plus applicable attendance bonus/absence penalty, update streaks, and clamp the final balance atomically.
 - Settled reputation updates once per day; today's earned reputation remains pending until settlement.
 - Split ongoing sessions at local midnight. A member need not disconnect to receive the previous day's credit.
 - Use timezone-aware calendar boundaries, including daylight-saving changes; do not hard-code a UTC offset or assume every day lasts exactly 24 hours.
@@ -85,7 +106,7 @@ Time should be accumulated before rounding, not rounded separately for each visi
 
 - Members can inspect their own tracked statistics or another member's statistics.
 - Replies publicly.
-- Shows today's verified eligible time and expected pending award.
+- Shows today's verified eligible time, base voice-time points before bounds (excluding the still-undetermined daily bonus/penalty), and both last-settled streaks.
 - Include the daily reset/rounding explanation where useful.
 - Use a Discord user option to select another member rather than ambiguous free-text username lookup.
 
@@ -109,7 +130,7 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Treat this as a self-service command, not permission to delete another user's data.
 - Scope is reputation-feature records, not unrelated nickname-voting, archive, or other bot data.
 - Confirmation is an ephemeral warning with Delete/Cancel buttons, restricted to the caller, expiring after **60 seconds**. Cancellation or expiry makes no changes.
-- Remove/reset the live balance, pending earnings, voice records, and member-level daily reward data, while keeping the minimum user identity and `is_tracking = false`. Do not remove frozen historical report snapshots.
+- Remove/reset the live balance, participation/streak counters, old pause history, pending earnings, voice records, and member-level daily reward data, while keeping the minimum user identity and `is_tracking = false`. Do not remove frozen historical report snapshots.
 - Tracking remains disabled until the caller explicitly uses `/reputation-on`. The user proposed `is_tracking` on the user table; this is suitable. Prisma may expose it as `isTracking` while mapping the database column to `is_tracking`.
 - Do not update already published historical reports or their saved pagination data. Historical daily points, balance snapshots, and aggregates remain unchanged.
 - Do not include deleted live data in future reports, including reports not yet published. Stage 4 removes all live member/day rows used as pending report entries. The stage-5 publisher uses those live rows when freezing unpublished reports, and a separate frozen snapshot for published history; it never reconstructs erased entries from old accounting summaries.

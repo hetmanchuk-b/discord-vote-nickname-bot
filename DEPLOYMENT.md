@@ -23,7 +23,7 @@ Check the intended hosted schema separately:
 npm run db:status
 ```
 
-All five reputation migrations were applied with approval during development. Future migrations must be reviewed and explicitly applied with `npm run db:migrate` from a trusted checkout. Do not use `migrate reset` or automatic startup migrations.
+All six reputation migrations, including `20261111050000_attendance_rewards`, were applied to the configured hosted database with approval; status verification confirmed the schema is up to date. The owner confirmed the bot was stopped before the attendance migration. Other installations must review and apply pending migrations before deploying the updated build. Stop the old bot first; it is not compatible with the new attendance/bounded-balance accounting. Existing guilds start attendance accounting on the next full Kyiv day after migration, with fresh streaks; live balances are clamped to −500…5,000 without rewriting published history. Migrations must be reviewed and explicitly applied with `npm run db:migrate` from a trusted checkout. Do not use `migrate reset` or automatic startup migrations.
 
 ## 2. Register slash commands explicitly
 

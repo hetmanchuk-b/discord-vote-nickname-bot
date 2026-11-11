@@ -138,16 +138,24 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         await tx.reputationVoiceInterval.deleteMany({ where: { guildId, userId } });
         await tx.reputationDailyAward.deleteMany({ where: { guildId, userId } });
         const existing = await tx.reputationMember.findUnique({
-          where: { guildId_userId: { guildId, userId } }, select: { trackingSince: true },
+          where: { guildId_userId: { guildId, userId } },
+          select: { trackingSince: true, pauses: { orderBy: { startedAt: 'desc' }, take: 1 } },
         });
-        const since = existing?.trackingSince && existing.trackingSince > at ? existing.trackingSince : at;
+        const lastPause = existing?.pauses[0];
+        const since = new Date(Math.max(at.getTime(), existing?.trackingSince?.getTime() ?? -Infinity,
+          lastPause?.startedAt.getTime() ?? -Infinity, lastPause?.endedAt?.getTime() ?? -Infinity));
+        await tx.reputationTrackingPause.deleteMany({ where: { guildId, userId } });
         // Keep only the disabled identity/cutoff. Day ledgers and published report
         // snapshots are not member-owned rows; backups are not touched.
         await tx.reputationMember.upsert({
           where: { guildId_userId: { guildId, userId } },
           create: { guildId, userId, isTracking: false, trackingSince: since, createdAt: at, updatedAt: at },
-          update: { balance: 0, isTracking: false, trackingSince: since, createdAt: at, updatedAt: at },
+          update: {
+            balance: 0, hasParticipated: false, attendanceStreak: 0, absenceStreak: 0,
+            isTracking: false, trackingSince: since, createdAt: at, updatedAt: at,
+          },
         });
+        await tx.reputationTrackingPause.create({ data: { guildId, userId, startedAt: since } });
       }, transactionOptions);
     },
   };

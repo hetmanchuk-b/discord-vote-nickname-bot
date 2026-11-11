@@ -17,8 +17,9 @@ model ReputationGuild {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  trackingRunId  String?   @map("tracking_run_id") @db.Uuid
-  settledThrough DateTime? @map("settled_through") @db.Timestamptz(3)
+  trackingRunId      String?   @map("tracking_run_id") @db.Uuid
+  settledThrough     DateTime? @map("settled_through") @db.Timestamptz(3)
+  attendanceStartsAt DateTime? @map("attendance_starts_at") @db.Timestamptz(3)
 
   members      ReputationMember[]
   trackingRuns ReputationTrackingRun[]
@@ -30,20 +31,37 @@ model ReputationGuild {
 }
 
 model ReputationMember {
-  guildId       String    @map("guild_id") @db.VarChar(20)
-  userId        String    @map("user_id") @db.VarChar(20)
-  isTracking    Boolean   @default(true) @map("is_tracking")
-  trackingSince DateTime? @map("tracking_since") @db.Timestamptz(3)
-  balance       Int       @default(0)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  guildId          String    @map("guild_id") @db.VarChar(20)
+  userId           String    @map("user_id") @db.VarChar(20)
+  isTracking       Boolean   @default(true) @map("is_tracking")
+  trackingSince    DateTime? @map("tracking_since") @db.Timestamptz(3)
+  balance          Int       @default(0)
+  hasParticipated  Boolean   @default(false) @map("has_participated")
+  attendanceStreak Int       @default(0) @map("attendance_streak")
+  absenceStreak    Int       @default(0) @map("absence_streak")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   guild     ReputationGuild           @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
   intervals ReputationVoiceInterval[]
   awards    ReputationDailyAward[]
+  pauses    ReputationTrackingPause[]
 
   @@id([guildId, userId])
   @@map("reputation_members")
+}
+
+// Personal pause history is required for chronological settlement after downtime.
+model ReputationTrackingPause {
+  id        BigInt           @id @default(autoincrement())
+  guildId   String           @map("guild_id") @db.VarChar(20)
+  userId    String           @map("user_id") @db.VarChar(20)
+  startedAt DateTime         @map("started_at") @db.Timestamptz(3)
+  endedAt   DateTime?        @map("ended_at") @db.Timestamptz(3)
+  member    ReputationMember @relation(fields: [guildId, userId], references: [guildId, userId], onDelete: Cascade, map: "reputation_tracking_pauses_member_fkey")
+
+  @@index([guildId, userId, startedAt])
+  @@map("reputation_tracking_pauses")
 }
 
 // Coverage is [startedAt, verifiedThrough), NOT [startedAt, closedAt).
@@ -101,15 +119,23 @@ model ReputationSettlement {
   @@map("reputation_settlements")
 }
 
-// Live daily results, including sub-threshold activity. Historical published
+// Live daily results, including bonuses, absence penalties and exemptions.
+// points is the ACTUAL balance delta after clamping; components are uncapped.
+// Historical published
 // report snapshots will be separate so member deletion can keep published history.
 model ReputationDailyAward {
-  guildId      String @map("guild_id") @db.VarChar(20)
-  userId       String @map("user_id") @db.VarChar(20)
-  day          String @db.VarChar(10)
-  eligibleMs   Int    @map("eligible_ms")
-  points       Int
-  balanceAfter Int    @map("balance_after")
+  guildId          String  @map("guild_id") @db.VarChar(20)
+  userId           String  @map("user_id") @db.VarChar(20)
+  day              String  @db.VarChar(10)
+  eligibleMs       Int     @map("eligible_ms")
+  points           Int
+  balanceAfter     Int     @map("balance_after")
+  basePoints       Int     @default(0) @map("base_points")
+  attendanceBonus  Int     @default(0) @map("attendance_bonus")
+  absencePenalty   Int     @default(0) @map("absence_penalty")
+  attendanceStreak Int     @default(0) @map("attendance_streak")
+  absenceStreak    Int     @default(0) @map("absence_streak")
+  exempt           Boolean @default(false)
 
   member     ReputationMember     @relation(fields: [guildId, userId], references: [guildId, userId], onDelete: Cascade)
   settlement ReputationSettlement @relation(fields: [guildId, day], references: [guildId, day], onDelete: Restrict)

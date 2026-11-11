@@ -10,6 +10,8 @@ export interface TodayStatistics {
   pendingPoints: number;
   isTracking: boolean;
   incomplete: boolean;
+  attendanceStreak: number;
+  absenceStreak: number;
 }
 
 export interface MemberStore {
@@ -30,7 +32,8 @@ export function createMemberStore(getDatabase: () => PrismaClient = getReputatio
       const day = kyivDay(kyivDate(at));
       return getDatabase().$transaction(async tx => {
         const member = await tx.reputationMember.findUnique({
-          where: { guildId_userId: { guildId, userId } }, select: { isTracking: true },
+          where: { guildId_userId: { guildId, userId } },
+          select: { isTracking: true, attendanceStreak: true, absenceStreak: true },
         });
         const [total] = await tx.$queryRaw<{ eligibleMs: bigint }[]>(Prisma.sql`
           SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (
@@ -55,6 +58,7 @@ export function createMemberStore(getDatabase: () => PrismaClient = getReputatio
           day: day.day, eligibleMs, pendingPoints: pointsForTime(eligibleMs),
           isTracking: member?.isTracking ?? true,
           incomplete: coverage < at.getTime() - day.start.getTime(),
+          attendanceStreak: member?.attendanceStreak ?? 0, absenceStreak: member?.absenceStreak ?? 0,
         };
       }, { isolationLevel: 'RepeatableRead', maxWait: 5_000, timeout: 15_000 });
     },

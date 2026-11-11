@@ -4,10 +4,11 @@ import { getReputationDatabase } from './database.js';
 import { kyivDate, kyivDay } from './kyiv-day.js';
 import { summarizeDay } from './daily-summary.js';
 import type { MemberTime } from './daily-summary.js';
+import { settleAttendance } from './attendance-rules.js';
 
 export interface SettledDay {
   day: string;
-  pointsAwarded: number;
+  pointsAwarded: number; // Net actual balance change; can be negative after penalties.
   incomplete: boolean;
 }
 
@@ -29,7 +30,7 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
         });
         if (!locked.count) return null;
         const guild = await tx.reputationGuild.findUniqueOrThrow({
-          where: { guildId }, select: { settledThrough: true },
+          where: { guildId }, select: { settledThrough: true, attendanceStartsAt: true },
         });
         let next = guild.settledThrough;
         if (!next) {
@@ -63,37 +64,73 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
         const summary = summarizeDay(day, totals, runs.map(run => ({
           start: run.startedAt, end: run.verifiedThrough,
         })));
+        const eligibleById = new Map(summary.members.map(member => [member.userId, member.eligibleMs]));
+        const members = await tx.reputationMember.findMany({
+          where: { guildId, OR: [{ hasParticipated: true }, { userId: { in: [...eligibleById.keys()] } }] },
+          select: {
+            userId: true, balance: true, hasParticipated: true, attendanceStreak: true, absenceStreak: true,
+            pauses: {
+              where: {
+                startedAt: { lt: day.end },
+                OR: [{ endedAt: null }, { AND: [
+                  { endedAt: { gt: day.start } },
+                  { endedAt: { gt: tx.reputationTrackingPause.fields.startedAt } },
+                ] }],
+              },
+              select: { id: true }, take: 1,
+            },
+          },
+        });
+        const memberIds = new Set(members.map(member => member.userId));
+        if ([...eligibleById.keys()].some(id => !memberIds.has(id))) {
+          throw new Error('Settlement member records changed.');
+        }
+        const policyActive = !guild.attendanceStartsAt || day.start >= guild.attendanceStartsAt;
+        const awards = members.map(member => ({
+          userId: member.userId,
+          ...settleAttendance(member, eligibleById.get(member.userId) ?? 0,
+            !policyActive || summary.incomplete || member.pauses.length > 0),
+        }));
+        const pointsAwarded = awards.reduce((total, award) => total + award.points, 0);
+        if (!Number.isSafeInteger(pointsAwarded) || Math.abs(pointsAwarded) > 2_147_483_647) {
+          throw new Error('Daily net point total exceeds storage capacity.');
+        }
         await tx.reputationSettlement.create({
           data: {
             guildId, day: day.day, startedAt: day.start, endedAt: day.end, settledAt: at,
             verifiedMs: summary.verifiedMs, incomplete: summary.incomplete,
-            activityMs: summary.activityMs, pointsAwarded: summary.pointsAwarded,
+            activityMs: summary.activityMs, pointsAwarded,
           },
         });
 
-        if (summary.members.length) {
-          const awards = JSON.stringify(summary.members.map(member => ({ user_id: member.userId, points: member.points })));
-          const balances = await tx.$queryRaw<{ userId: string; balanceAfter: number }[]>(Prisma.sql`
+        if (awards.length) {
+          const updates = JSON.stringify(awards.map(award => ({
+            user_id: award.userId, balance: award.balanceAfter, has_participated: award.hasParticipated,
+            attendance_streak: award.attendanceStreak, absence_streak: award.absenceStreak,
+          })));
+          const balances = await tx.$queryRaw<{ userId: string }[]>(Prisma.sql`
             UPDATE reputation_members AS m
-            SET balance = m.balance + award.points, updated_at = ${at}
-            FROM jsonb_to_recordset(${awards}::jsonb) AS award(user_id text, points integer)
+            SET balance = award.balance, has_participated = award.has_participated,
+              attendance_streak = award.attendance_streak, absence_streak = award.absence_streak, updated_at = ${at}
+            FROM jsonb_to_recordset(${updates}::jsonb) AS award(
+              user_id text, balance integer, has_participated boolean, attendance_streak integer, absence_streak integer)
             WHERE m.guild_id = ${guildId} AND m.user_id = award.user_id
-            RETURNING m.user_id AS "userId", m.balance AS "balanceAfter"
+            RETURNING m.user_id AS "userId"
           `);
-          const balanceById = new Map(balances.map(member => [member.userId, member.balanceAfter]));
-          if (balanceById.size !== summary.members.length) throw new Error('Settlement member records changed.');
+          if (balances.length !== awards.length) throw new Error('Settlement member records changed.');
           await tx.reputationDailyAward.createMany({
-            data: summary.members.map(member => {
-              const balanceAfter = balanceById.get(member.userId);
-              if (balanceAfter === undefined) throw new Error('Settlement balance is missing.');
-              return { guildId, day: day.day, ...member, balanceAfter };
-            }),
+            data: awards.map(award => ({
+              guildId, day: day.day, userId: award.userId, eligibleMs: award.eligibleMs,
+              points: award.points, balanceAfter: award.balanceAfter, basePoints: award.basePoints,
+              attendanceBonus: award.attendanceBonus, absencePenalty: award.absencePenalty,
+              attendanceStreak: award.attendanceStreak, absenceStreak: award.absenceStreak, exempt: award.exempt,
+            })),
           });
         }
         await tx.reputationGuild.update({
           where: { guildId }, data: { settledThrough: day.end },
         });
-        return { day: day.day, pointsAwarded: summary.pointsAwarded, incomplete: summary.incomplete };
+        return { day: day.day, pointsAwarded, incomplete: summary.incomplete };
       }, { maxWait: 5_000, timeout: 30_000 });
     },
   };

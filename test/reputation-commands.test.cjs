@@ -16,7 +16,7 @@ function fixture() {
     getToday: async (...args) => {
       calls.push(['today', ...args]);
       return { day: '2026-11-11', eligibleMs: 13 * 60_000, pendingPoints: 1,
-        isTracking: false, incomplete: true, trackingAvailable: false };
+        isTracking: false, incomplete: true, trackingAvailable: false, attendanceStreak: 0, absenceStreak: 7 };
     },
     setTracking: async (...args) => { calls.push(['tracking', ...args]); return { trackingAvailable: false }; },
     deleteData: async (...args) => { calls.push(['delete', ...args]); },
@@ -77,6 +77,10 @@ test('today displays saved duration, pending points, paused status, and coverage
   assert.equal(embed.fields[0].value, '0 год 13 хв 0 с');
   assert.equal(embed.fields[1].value, '+1 балів');
   assert.equal(embed.fields[2].value, 'Tracking paused');
+  assert.match(embed.fields[1].name, /до ліміту/);
+  assert.equal(embed.fields[3].value, '0 дн.');
+  assert.equal(embed.fields[4].value, '7 дн.');
+  assert.match(embed.footer.text, /Бонус\/штраф/);
   assert.match(embed.description, /неповні/);
   assert.match(embed.description, /неактивний/);
 });
@@ -98,7 +102,8 @@ test('rules are ephemeral and do not access the database or tracker', async () =
   await createMemberCommand('rules').execute(f.interaction);
   assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
   const text = JSON.stringify(f.replies[0].embeds[0].toJSON());
-  for (const rule of ['10', 'Europe/Kyiv', 'AFK', 'Stage', '/reputation-off', '/reputation-delete', 'резервні копії']) {
+  for (const rule of ['10', 'Europe/Kyiv', 'AFK', 'Stage', '/reputation-off', '/reputation-delete', 'резервні копії',
+    '−500', '5 000', '3–9', '10–16', '8-го', 'заморожені', 'обидві серії']) {
     assert.ok(text.includes(rule));
   }
 });
