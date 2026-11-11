@@ -21,11 +21,12 @@ model ReputationGuild {
   settledThrough     DateTime? @map("settled_through") @db.Timestamptz(3)
   attendanceStartsAt DateTime? @map("attendance_starts_at") @db.Timestamptz(3)
 
-  members      ReputationMember[]
-  trackingRuns ReputationTrackingRun[]
-  settlements  ReputationSettlement[]
-  reports      ReputationReport[]
-  warning      ReputationWarning?
+  members        ReputationMember[]
+  trackingRuns   ReputationTrackingRun[]
+  settlements    ReputationSettlement[]
+  reports        ReputationReport[]
+  warning        ReputationWarning?
+  voicePenalties VoicePenaltyPoll[]
 
   @@map("reputation_guilds")
 }
@@ -209,4 +210,48 @@ model ReputationWarning {
   guild ReputationGuild @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
 
   @@map("reputation_warnings")
+}
+
+// Polls are durable financial/history records, intentionally not member-owned.
+model VoicePenaltyPoll {
+  id             String             @id @db.Uuid
+  guildId        String             @map("guild_id") @db.VarChar(20)
+  targetId       String             @map("target_id") @db.VarChar(20)
+  initiatorId    String             @map("initiator_id") @db.VarChar(20)
+  voiceChannelId String             @map("voice_channel_id") @db.VarChar(20)
+  textChannelId  String             @map("text_channel_id") @db.VarChar(20)
+  messageId      String?            @unique @map("message_id") @db.VarChar(20)
+  amount         Int
+  status         String             @default("creating") @db.VarChar(16)
+  reason         String?            @db.VarChar(32)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt      DateTime?          @map("started_at") @db.Timestamptz(3)
+  endsAt         DateTime?          @map("ends_at") @db.Timestamptz(3)
+  closedAt       DateTime?          @map("closed_at") @db.Timestamptz(3)
+  actualFine     Int                @default(0) @map("actual_fine")
+  balanceAfter   Int?               @map("balance_after")
+  noVoterIds     String[]           @default([]) @map("no_voter_ids")
+  publishing     Boolean            @default(false)
+  publishedAt    DateTime?          @map("published_at") @db.Timestamptz(3)
+  messageMissing Boolean            @default(false) @map("message_missing")
+  lastAttemptAt  DateTime?          @map("last_attempt_at") @db.Timestamptz(3)
+  guild          ReputationGuild    @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
+  votes          VoicePenaltyVote[]
+
+  @@index([guildId, status, endsAt])
+  @@index([guildId, publishedAt, lastAttemptAt])
+  @@map("voice_penalty_polls")
+}
+
+model VoicePenaltyVote {
+  pollId        String           @map("poll_id") @db.Uuid
+  userId        String           @map("user_id") @db.VarChar(20)
+  yes           Boolean
+  interactionId String           @default("0") @map("interaction_id") @db.VarChar(20)
+  updatedAt     DateTime         @default(now()) @map("updated_at") @db.Timestamptz(3)
+  poll          VoicePenaltyPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  @@id([pollId, userId])
+  @@index([userId, pollId])
+  @@map("voice_penalty_votes")
 }

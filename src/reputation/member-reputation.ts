@@ -16,6 +16,7 @@ interface MemberReputationOptions {
   members?: MemberStore;
   tracking?: TrackingStore;
   now?: () => Date;
+  onDeleted?: (guildId: string, userId: string) => Promise<void>;
 }
 
 export function createMemberReputation(options: MemberReputationOptions): ReputationMembers {
@@ -46,6 +47,8 @@ export function createMemberReputation(options: MemberReputationOptions): Reputa
       const tracker = options.getTracker(guildId);
       if (tracker) await tracker.deleteData(userId);
       else await tracking.deleteMemberData(guildId, userId, now());
+      try { await options.onDeleted?.(guildId,userId); }
+      catch { console.warn('Reputation erased; poll display reconciliation will retry later.'); }
     },
   };
 }

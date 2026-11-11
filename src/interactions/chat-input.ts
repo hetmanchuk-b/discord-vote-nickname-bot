@@ -18,7 +18,7 @@ export async function handleChatInput(interaction: ChatInputCommandInteraction) 
   const cooldownAmount = (command.cooldown ?? defaultCooldownDuration) * 1_000;
 
   const previousTimestamp = timestamps.get(interaction.user.id);
-  if (previousTimestamp !== undefined) {
+  if (cooldownAmount > 0 && previousTimestamp !== undefined) {
     const expirationTime = previousTimestamp + cooldownAmount;
     const expiredTimestamp = Math.round(expirationTime / 1_000);
     return interaction.reply({
@@ -27,8 +27,10 @@ export async function handleChatInput(interaction: ChatInputCommandInteraction) 
     });
   }
 
-  timestamps.set(interaction.user.id, now);
-  setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);
+  if (cooldownAmount > 0) {
+    timestamps.set(interaction.user.id, now);
+    setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);
+  }
 
   try {
     await command.execute(interaction);

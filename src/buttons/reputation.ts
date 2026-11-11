@@ -28,12 +28,12 @@ export function createReputationButtons(confirmations: DeletionConfirmations = d
         await interaction.client.reputation.deleteData(guildId, interaction.user.id);
         return await interaction.editReply({
           content: '✅ Живі дані репутації видалено. Баланс і накопичений час: 0. Tracking paused.\n' +
-            'Для нового старту використайте `/reputation-on`. Мінімальний запис про вимкнений облік, опубліковані звіти та резервні копії залишено.',
+            'Для нового старту використайте `/reputation-on`. Мінімальний запис про вимкнений облік, опубліковані звіти, результати голосувань та резервні копії залишено.',
           components: [], allowedMentions: { parse: [] },
         });
       } catch (error) {
         if (error instanceof PublicationPendingError) return interaction.editReply({
-          content: '⏳ Публікація звіту ще підтверджується. Дані не видалено; повторіть `/reputation-delete` після відновлення доставки звітів.',
+          content: '⏳ Публікація звіту або результату голосування ще підтверджується. Дані не видалено; повторіть `/reputation-delete` після відновлення доставки.',
           components: [],
         });
         console.error('Could not confirm reputation data deletion.');

@@ -131,7 +131,25 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         const publishing = await tx.reputationReportEntry.findFirst({
           where: { guildId, userId, report: { status: 'publishing' } }, select: { reportId: true },
         });
-        if (publishing) throw new PublicationPendingError();
+        const penaltyPublishing = await tx.voicePenaltyPoll.findFirst({
+          where: { guildId, publishing: true, publishedAt: null, messageMissing: false,
+            OR: [{ targetId: userId }, { noVoterIds: { has: userId } }] }, select: { id: true },
+        });
+        if (publishing || penaltyPublishing) throw new PublicationPendingError();
+        // Cancel target polls before erasing enrollment. Re-enrollment cannot
+        // resurrect them. Published outcomes remain immutable public history.
+        await tx.voicePenaltyPoll.updateMany({
+          where: { guildId, targetId: userId, publishedAt: null, publishing: false },
+          data: { status: 'cancelled', reason: 'target-erased', actualFine: 0, balanceAfter: null, noVoterIds: [], closedAt: at },
+        });
+        await tx.voicePenaltyPoll.updateMany({
+          where: { guildId, targetId: userId, messageId: null }, data: { messageMissing: true },
+        });
+        await tx.voicePenaltyVote.deleteMany({ where: { OR: [
+          { userId, poll: { guildId } }, { poll: { guildId, targetId: userId, status: 'cancelled', publishedAt: null } },
+        ] } });
+        await tx.$executeRaw`UPDATE voice_penalty_polls SET no_voter_ids = array_remove(no_voter_ids, ${userId})
+          WHERE guild_id = ${guildId} AND published_at IS NULL AND NOT publishing`;
         await tx.reputationReportEntry.deleteMany({
           where: { guildId, userId, report: { status: { in: ['pending', 'missing'] } } },
         });
