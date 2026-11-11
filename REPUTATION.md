@@ -1,6 +1,6 @@
 # Voice Reputation — Planning Specification
 
-Status: **stages 1–5 implemented**, including member commands, daily embed delivery, shared pagination, and throttled operational warnings. All background reputation activity remains behind an **OFF-by-default flag**. Backups and the final deployment walkthrough remain future work.
+Status: **stages 1–6 implemented**, including member commands, reports/warnings, encrypted backup tooling, and deployment/setup guides. All background reputation activity remains **OFF by default**. Real backup/restore verification, GitHub secrets/scheduling, command deployment, and production activation remain explicit rollout steps; they have not been performed.
 
 ## Implementation progress
 
@@ -16,7 +16,10 @@ Status: **stages 1–5 implemented**, including member commands, daily embed del
 - Database schema changes are explicit deployment steps; no migration is run automatically at startup. With the user's approval, `20261111000000_reputation_foundation` was applied to the configured Prisma database using `prisma migrate deploy`; subsequent `prisma migrate status` confirmed the schema is up to date.
 - With the user's approval, stage-3 migration `20261111020000_daily_settlement` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all three migrations are up to date. Applying this migration does not activate tracking or issue payouts by itself.
 - Stage-3 verification: all **85 tests** passed with integration tests enabled against a disposable local Prisma PostgreSQL-compatible database, including SQL rollback, concurrent payouts, DST days, midnight splitting, and stale checkpoint clipping. Schema validation, type-check, lint, and build also passed. The local database process was stopped afterward.
-- Next stage: backups/deployment and guided GitHub Actions setup.
+- Stage 6: manual-first GitHub Actions workflow, streaming AES-256-GCM archives, direct PostgreSQL 17 public-schema exports, Prisma Object Store upload/read-back authentication/catalog verification, and opt-in prefix-scoped retention. The workflow uses Node built-ins plus external tools, not extra bot dependencies.
+- Stage-6 verification: all **179 tests** passed with local reputation-database integration enabled. Encryption/authentication and filesystem cleanup are real; PostgreSQL archive tools and S3 operations in backup tests are simulated. Type-check, lint, build, and workflow YAML parsing passed. No native dump/upload or complete database restoration has been tested.
+- Backup scheduling and retention deletion default to OFF. No database export, bucket upload, GitHub secret configuration, live workflow run, or production restore has been performed. No stage-6 database migration is needed.
+- Step-by-step rollout guidance is in `BACKUPS.md` and `DEPLOYMENT.md`. Live endpoint compatibility and a full restore into an approved disposable database still require manual verification before unattended scheduling/activation.
 - Obtain user confirmation before applying further migrations to the hosted database. See `README.md` for stage-1 setup and testing instructions.
 
 ## Purpose
@@ -184,11 +187,12 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Plan batched writes, avoid overlapping checkpoint jobs, and use bounded retry/backoff rather than continuous outage polling. Exact query strategy and usage monitoring remain to be designed.
 - Do not assume the database Free plan provides daily backups. The user has created a **Prisma Object Store bucket** as the proposed backup destination; its credentials, connectivity, and pricing have not been inspected or tested.
 - Prisma Object Store is S3-compatible and can hold uploaded database exports. Creating a bucket does not schedule or produce database backups.
-- Proposed workflow: a scheduled job obtains a consistent PostgreSQL dump using a direct database connection, uploads a uniquely dated export, verifies success, and removes older exports according to an agreed retention policy. Choose the scheduler, encryption/access policy, and retention before implementation.
+- Implemented workflow: an explicitly invoked job obtains a consistent direct-connection PostgreSQL 17 public-schema dump, encrypts it locally, uploads a uniquely named object, and verifies a read-back. Scheduling and irreversible retention cleanup remain separately disabled until the owner configures/approves them.
 - The user reports adding bucket credentials to local `.env`; values have not been inspected or tested. Local `.env` does not automatically supply credentials to a hosted bot or an external backup scheduler.
-- Recommended scheduler: a separate GitHub Actions workflow, with a daily schedule and manual trigger, PostgreSQL client tools, and an S3-compatible upload client. This is a proposal, not a configured workflow. Use repository/environment secrets; never commit `.env`, credential-bearing URLs, or backup files.
+- Stage 6 provides `.github/workflows/database-backup.yml` with manual check/backup/verify modes and an opt-in daily 02:17 UTC schedule (after Kyiv settlement). It uses PostgreSQL 17 in Docker and AWS CLI v2. Repository secrets are not configured; local `.env` is not copied automatically. Never commit `.env`, credential-bearing URLs, plaintext dumps, or encryption keys.
 - GitHub scheduled jobs can be delayed or dropped, and schedules in public repositories are disabled after 60 days without repository activity. Monitor the last successful backup and retain a manual-run option; the schedule is not a guaranteed backup SLA.
-- Prefer a non-midnight/non-top-of-hour backup time, after expected settlement, and keep 7 successful daily exports initially (proposal). Never delete the last good backup before a replacement is verified. Decide encryption and restore testing before implementation.
+- Backups are encrypted before upload with a separate 32-byte AES-256-GCM key. The key must be stored privately outside Prisma and supplied separately as a GitHub secret. Downloaded ciphertext is SHA-256 checked, authenticated/decrypted, and checked with `pg_restore --list`; that is not a complete restore test.
+- Retention defaults to disabled. If explicitly enabled, the proposed default keeps the latest 7 managed archives in a dedicated prefix; manual runs count, so this is not a seven-calendar-day policy. Cleanup only runs after a verified replacement and refuses unexpected ordering. User-data deletion never clears backups.
 - A bucket-scoped `read_write` key can upload and delete objects; keep it secret. Prisma Object Store has no versioning or soft delete, so deleting an object is irreversible through its API. Do not rely on automatic lifecycle cleanup without verifying support.
 - A bucket in the same Prisma account is outside KataBump but not independent of Prisma/account-wide failures or compromise. An occasional separate downloaded copy remains recommended.
 - Bucket pricing and plan limits were not published in the storage documentation checked during planning; do not assume database Free-plan allowances cover bucket storage.
@@ -227,5 +231,5 @@ Source: https://www.prisma.io/pricing
 6. Decide raw session/checkpoint retention versus long-term daily summary retention.
 7. Decide how Discord warnings are handled if the configured channel is inaccessible. Stage 2 implements conservative checkpoint/reconnect reconciliation and bounded retries.
 8. Stage 5 resolves erasure/publication races: live rows are read while freezing under the server lock; erasure of an affected member is temporarily rejected while Discord publication is unconfirmed. After marker reconciliation, historical snapshots remain and live erasure can proceed. If access to the original channel is lost, restore access so reconciliation can finish.
-9. Confirm the external backup scheduler, export retention/encryption, access secrets, and failure monitoring. The user requests step-by-step guidance for GitHub Actions; no workflow has been created yet.
+9. Complete GitHub Actions setup: encryption-key custody, six repository secrets, live encrypted backup/verification, full disposable restore, failure notifications, and explicit opt-in scheduling. The workflow is created but not run; retention deletion remains separately opt-in.
 10. Specify backup restore handling so an old backup does not silently undo a user's deletion or opt-out. Existing backups are not rewritten on deletion.

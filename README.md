@@ -93,11 +93,25 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 - `src/generated/` — generated Prisma Client (ignored; included in compiled `dist/`)
 - `test/` — offline tests against the compiled output (no Discord login required)
 
-## Reputation: stages 1–5
+## Reputation: implementation and rollout
 
-The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stages 1–4 implement storage, voice tracking, daily settlement, and member controls. Stage 5 adds daily reports, durable shared pagination, and operational warnings. **Background tracking, settlement, reports, and warnings remain OFF by default. Backups and the final deployment walkthrough are still pending.** Setting a channel or enabling a personal preference does not activate the global tracking flag.
+The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stages 1–4 implement storage, voice tracking, daily settlement, and member controls. Stage 5 adds daily reports, durable shared pagination, and operational warnings. **Background tracking, settlement, reports, and warnings remain OFF by default.** Backup tooling and guided deployment are now in place; live backup/restore verification, GitHub secrets/scheduling, slash-command deployment, and activation still require your explicit setup. Setting a channel or enabling a personal preference does not activate the global tracking flag.
 
 Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime database access uses a lazy pool of at most 3 connections with finite query/connection timeouts. The bot's existing commands and slash-command deployment do not require a database connection.
+
+### Deployment and backups
+
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — KataBump upload/startup, permissions, command registration, smoke checks, and deliberate activation.
+- [`BACKUPS.md`](BACKUPS.md) — beginner-friendly GitHub Actions setup, private secrets, encrypted Prisma bucket backups, verification, restore testing, and optional retention.
+
+The backup workflow is manual-first: scheduled runs and deletion of old backups are disabled by default. It uses Node built-ins, PostgreSQL 17 tools, and AWS CLI rather than adding runtime npm packages. No real export/upload or production restore has been performed. Keep bucket credentials and backup encryption keys off the bot host.
+
+```bash
+npm run backup:check   # Offline configuration validation, no database/bucket requests
+# The following are REAL remote operations; read BACKUPS.md before using:
+# npm run backup
+# npm run backup:verify
+```
 
 ### Environment and migration setup
 
@@ -121,11 +135,11 @@ Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime
 
 5. Deploy slash commands with `npm run commands`. A member with **Manage Server** can run `/set-reputation-report` to set/change the destination. The command validates a regular text channel in this server and checks the bot's View Channel, Send Messages, Embed Links, and Read Message History permissions. Replies are ephemeral; failures do not confirm a successful save.
 
-`.env` is loaded explicitly from the project root and remains ignored by Git. Existing process environment variables take precedence. Never upload credentials to a public repository or paste them into logs. Bucket credentials are not used yet.
+`.env` is loaded explicitly from the project root and remains ignored by Git. Existing process environment variables take precedence. Never upload credentials to a public repository or paste them into logs. Bucket credentials are used only by the separate backup scripts, not by the running bot.
 
 ### KataBump deployment
 
-Build locally, upload the **entire `dist/` directory** (including generated client code), `package.json`, `package-lock.json`, and `data/config.json`. Supply `DATABASE_URL` securely through the hosting environment or a private `.env` in the project root. Keep JS FILE set to `dist/index.js`.
+Build locally, upload the **entire `dist/` directory** (including generated client code), `package.json`, `package-lock.json`, and `data/config.json`. Supply `DATABASE_URL` and the reputation flags securely through the hosting environment or a minimal private `.env` in the project root. Do not upload your entire developer `.env` with bucket/encryption credentials. Keep JS FILE set to `dist/index.js`.
 
 Production installation can use `npm ci --omit=dev`. Migrations require the development CLI and the `prisma/` directory plus `prisma.config.ts`; run them separately from a trusted development/deployment machine, not implicitly on each bot restart. Do not upload `node_modules` from Windows to the Linux host.
 

@@ -9,7 +9,7 @@ module.exports = tseslint.config(
     files: ['**/*.js', '**/*.cjs'],
     languageOptions: {
       sourceType: 'commonjs',
-      globals: { console: 'readonly' },
+      globals: { console: 'readonly', __dirname: 'readonly' },
     },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
