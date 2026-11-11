@@ -1,15 +1,18 @@
 # Voice Reputation — Planning Specification
 
-Status: **stage 1 implemented; stage 2 voice tracking implemented behind an OFF-by-default flag**. This document records agreed rules, proposed interfaces, and unresolved decisions. No reputation payouts or member commands are active yet.
+Status: **stages 1–3 implemented: storage, voice tracking, and daily settlement**. Tracking and settlement remain behind an **OFF-by-default flag**. Member commands, report delivery, and backups are still future work.
 
 ## Implementation progress
 
 - Stage 1: Prisma ORM 7.10.1, generated CommonJS-compatible client, explicit `.env` loading, lazy PostgreSQL pool, initial guild/member schema and migration, and persistent `/set-reputation-report` settings command.
 - Stage 2: single-server Discord voice-state integration, serialized five-minute checkpoints, unrounded verified voice intervals, tracking-run coverage, internal persistent pause/resume, and conservative restart/gateway/database recovery.
-- The initial schema stores server-scoped report destinations and member identities, integer balances, and `is_tracking` (default true). Stage 2 adds tracking runs and voice intervals; settlement and immutable report snapshots remain future work.
-- With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until settlement and member commands are ready.
+- Stage 3: DST-safe Kyiv-day boundaries, transactional whole-point payouts, immutable post-payout balance values in daily results, coverage summaries, duplicate-payout prevention, and startup/midnight catch-up with bounded retries.
+- The initial schema stores server-scoped report destinations and member identities, integer balances, and `is_tracking` (default true). Stage 2 adds tracking runs and voice intervals. Stage 3 adds unique day ledgers, member/day results, and a settled-through watermark. Immutable published report snapshots remain future work.
+- With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until member commands and reports are ready.
 - Database schema changes are explicit deployment steps; no migration is run automatically at startup. With the user's approval, `20261111000000_reputation_foundation` was applied to the configured Prisma database using `prisma migrate deploy`; subsequent `prisma migrate status` confirmed the schema is up to date.
-- Next stages: daily settlement; member commands/deletion; reports/warnings; backups/deployment.
+- With the user's approval, stage-3 migration `20261111020000_daily_settlement` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all three migrations are up to date. Applying this migration does not activate tracking or issue payouts by itself.
+- Stage-3 verification: all **85 tests** passed with integration tests enabled against a disposable local Prisma PostgreSQL-compatible database, including SQL rollback, concurrent payouts, DST days, midnight splitting, and stale checkpoint clipping. Schema validation, type-check, lint, and build also passed. The local database process was stopped afterward.
+- Next stages: member commands/deletion; reports/warnings; backups/deployment.
 - Obtain user confirmation before applying further migrations to the hosted database. See `README.md` for stage-1 setup and testing instructions.
 
 ## Purpose
@@ -56,6 +59,10 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Use timezone-aware calendar boundaries, including daylight-saving changes; do not hard-code a UTC offset or assume every day lasts exactly 24 hours.
 - After a restart, automatically process missed settlements and publish delayed reports for their original dates.
 - Retrying a settlement or restarting the bot must not award the same day's points twice.
+- Stage 3 implements a unique server/day ledger and serializes tracking/settlement on the server row. Balance increments, daily results, and the closed-day watermark commit atomically. Removing member-level results cannot enable replay of a settled day.
+- Late tracking writes are clipped to the watermark. Coverage and results for completed days remain frozen, rather than being silently revised by a delayed checkpoint.
+- Healthy scheduling wakes at Kyiv midnight and startup, not by querying every minute. Database failures use bounded 1–5-minute retries; long catch-up queues yield after 31 days per batch.
+- Member/day results retain the day's eligible milliseconds, points, and settled balance. These are live reputation records that deletion may remove; permanently retained published-history snapshots will be implemented separately in the reporting stage.
 
 ## Commands and transparency
 

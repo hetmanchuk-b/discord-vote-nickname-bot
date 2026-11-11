@@ -72,8 +72,13 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         });
         if (advanced.count !== 1) throw new TrackingLeaseLostError();
 
+        const guild = await tx.reputationGuild.findUniqueOrThrow({
+          where: { guildId }, select: { settledThrough: true },
+        });
+        // A delayed checkpoint must not introduce new earnings into a frozen day.
+        const effectiveFrom = guild.settledThrough && guild.settledThrough > from ? guild.settledThrough : from;
         const ids = [...new Set(userIds)];
-        if (ids.length && to > from) {
+        if (ids.length && to > effectiveFrom) {
           await tx.reputationMember.createMany({
             data: ids.map(userId => ({ guildId, userId })), skipDuplicates: true,
           });
@@ -83,7 +88,7 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
           });
           if (enabled.length) {
             await tx.reputationVoiceInterval.createMany({
-              data: enabled.map(({ userId }) => ({ guildId, userId, runId, startedAt: from, endedAt: to })),
+              data: enabled.map(({ userId }) => ({ guildId, userId, runId, startedAt: effectiveFrom, endedAt: to })),
             });
           }
         }

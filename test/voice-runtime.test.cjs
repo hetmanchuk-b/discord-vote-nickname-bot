@@ -5,6 +5,7 @@ const { setImmediate } = require('node:timers/promises');
 const process = require('node:process');
 const { Events, Collection, ChannelType } = require('discord.js');
 const storeModule = require('../dist/reputation/tracking-store.js');
+const settlementModule = require('../dist/reputation/settlement-store.js');
 const { attachVoiceTracking } = require('../dist/reputation/voice-tracking.js');
 
 const guildId = '111111111111111111';
@@ -15,6 +16,7 @@ test('Discord runtime checkpoints only its configured server and suspends across
   const calls = { opened: 0, checkpoints: 0, closed: 0 };
   const timers = [];
   t.mock.method(console, 'warn', () => {});
+  t.mock.method(settlementModule, 'createSettlementStore', () => ({ settleNextClosedDay: async () => null }));
   t.mock.method(storeModule, 'createTrackingStore', () => ({
     openRun: async () => ({ runId: `run-${++calls.opened}`, pausedUserIds: [] }),
     checkpoint: async () => { calls.checkpoints++; },
@@ -40,27 +42,28 @@ test('Discord runtime checkpoints only its configured server and suspends across
     assert.equal(calls.opened, 1);
     assert.equal(runtime.tracker.status, 'tracking');
     assert.equal(timers[0].interval, 5 * 60_000);
+    const startupCheckpoints = calls.checkpoints;
 
     client.emit(Events.VoiceStateUpdate, { guild: { id: 'other' } }, { guild: { id: 'other' } });
     await setImmediate();
-    assert.equal(calls.checkpoints, 0);
+    assert.equal(calls.checkpoints, startupCheckpoints);
     guild.voiceStates.cache.set('human', {
       id: 'human', member: { user: { bot: false } }, channelId: 'voice',
       channel: { type: ChannelType.GuildVoice },
     });
     client.emit(Events.VoiceStateUpdate, { guild }, { guild });
     await setImmediate();
-    assert.equal(calls.checkpoints, 1);
+    assert.equal(calls.checkpoints, startupCheckpoints + 1);
     timers[0].callback();
     await setImmediate();
-    assert.equal(calls.checkpoints, 2);
+    assert.equal(calls.checkpoints, startupCheckpoints + 2);
 
     client.emit(Events.ShardDisconnect, {}, 0);
     await setImmediate();
     assert.equal(runtime.tracker.status, 'suspended');
     timers[0].callback();
     await setImmediate();
-    assert.equal(calls.checkpoints, 2);
+    assert.equal(calls.checkpoints, startupCheckpoints + 2);
     client.emit(Events.ShardResume, 0);
     await setImmediate();
     assert.equal(calls.opened, 2);

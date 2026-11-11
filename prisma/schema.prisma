@@ -10,17 +10,19 @@ datasource db {
   provider = "postgresql"
 }
 
-// Stage 2: raw verified intervals and coverage; settlement tables arrive later.
+// Stage 3: verified intervals, coverage, and atomic daily settlement.
 model ReputationGuild {
   guildId         String   @id @map("guild_id") @db.VarChar(20)
   reportChannelId String?  @map("report_channel_id") @db.VarChar(20)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  trackingRunId String? @map("tracking_run_id") @db.Uuid
+  trackingRunId  String?   @map("tracking_run_id") @db.Uuid
+  settledThrough DateTime? @map("settled_through") @db.Timestamptz(3)
 
   members      ReputationMember[]
   trackingRuns ReputationTrackingRun[]
+  settlements  ReputationSettlement[]
 
   @@map("reputation_guilds")
 }
@@ -35,6 +37,7 @@ model ReputationMember {
 
   guild     ReputationGuild           @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
   intervals ReputationVoiceInterval[]
+  awards    ReputationDailyAward[]
 
   @@id([guildId, userId])
   @@map("reputation_members")
@@ -72,4 +75,42 @@ model ReputationVoiceInterval {
   @@index([guildId, endedAt, startedAt])
   @@index([guildId, userId, startedAt])
   @@map("reputation_voice_intervals")
+}
+
+// The unique day ledger survives deletion of member-level records. Never replay
+// a settled day, even if its report has not been delivered or a member is erased.
+model ReputationSettlement {
+  guildId       String   @map("guild_id") @db.VarChar(20)
+  day           String   @db.VarChar(10)
+  startedAt     DateTime @map("started_at") @db.Timestamptz(3)
+  endedAt       DateTime @map("ended_at") @db.Timestamptz(3)
+  settledAt     DateTime @default(now()) @map("settled_at") @db.Timestamptz(3)
+  verifiedMs    Int      @map("verified_ms")
+  incomplete    Boolean
+  activityMs    BigInt   @map("activity_ms")
+  pointsAwarded Int      @map("points_awarded")
+
+  guild  ReputationGuild        @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
+  awards ReputationDailyAward[]
+
+  @@id([guildId, day])
+  @@map("reputation_settlements")
+}
+
+// Live daily results, including sub-threshold activity. Historical published
+// report snapshots will be separate so member deletion can keep published history.
+model ReputationDailyAward {
+  guildId      String @map("guild_id") @db.VarChar(20)
+  userId       String @map("user_id") @db.VarChar(20)
+  day          String @db.VarChar(10)
+  eligibleMs   Int    @map("eligible_ms")
+  points       Int
+  balanceAfter Int    @map("balance_after")
+
+  member     ReputationMember     @relation(fields: [guildId, userId], references: [guildId, userId], onDelete: Cascade)
+  settlement ReputationSettlement @relation(fields: [guildId, day], references: [guildId, day], onDelete: Restrict)
+
+  @@id([guildId, userId, day])
+  @@index([guildId, day, points, eligibleMs, userId])
+  @@map("reputation_daily_awards")
 }

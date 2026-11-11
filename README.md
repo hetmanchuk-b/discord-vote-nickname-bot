@@ -88,14 +88,14 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 - `src/utils/` — message fetching, deduplication, grouping, and finalist selection
 - `src/types.ts` — command, variant, session, and Discord client collection types
 - `src/vendor/` — declarations for the untyped media downloader dependency
-- `src/reputation/` — lazy database connection and persistent report settings
+- `src/reputation/` — database access, voice tracking, Kyiv-day accounting, settlement, and report settings
 - `prisma/` — database schema and versioned migrations
 - `src/generated/` — generated Prisma Client (ignored; included in compiled `dist/`)
 - `test/` — offline tests against the compiled output (no Discord login required)
 
-## Reputation: stages 1–2
+## Reputation: stages 1–3
 
-The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stage 1 adds storage and `/set-reputation-report id:<channel ID>`. Stage 2 adds an opt-in voice tracker. **Tracking remains OFF by default, and reputation payouts, member commands, reports, and backups are not implemented yet.** Setting a channel does not activate tracking.
+The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stage 1 adds storage and `/set-reputation-report id:<channel ID>`. Stage 2 adds an opt-in voice tracker. Stage 3 adds daily settlement. **Tracking and settlement remain OFF by default; member commands, reports, and backups are not implemented yet.** Setting a channel does not activate tracking or payouts.
 
 Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime database access uses a lazy pool of at most 3 connections with finite query/connection timeouts. The bot's existing commands and slash-command deployment do not require a database connection.
 
@@ -110,7 +110,7 @@ Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime
    npm run build
    ```
 
-4. Review `prisma/migrations/20261111000000_reputation_foundation/migration.sql`, then **explicitly apply it to the intended database**:
+4. Review all pending SQL files under `prisma/migrations/`, then **explicitly apply them to the intended database**:
 
    ```bash
    npm run db:migrate
@@ -131,13 +131,13 @@ Production installation can use `npm ci --omit=dev`. Migrations require the deve
 
 ### Voice tracker (stage 2, disabled by default)
 
-Keep `REPUTATION_TRACKING_ENABLED=false` while settlement and user controls are unfinished. Enabling tracking later requires `REPUTATION_GUILD_ID` for the single target server and the reviewed `20261111010000_voice_tracking` migration. No migrations are applied automatically.
+Keep `REPUTATION_TRACKING_ENABLED=false` while user controls and reports are unfinished. This flag gates **both tracking and settlement**. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
 
 The tracker:
 
 - Counts humans in regular voice channels, including solo, muted, and deafened members; excludes bots, Stage channels, and the configured AFK channel.
 - Captures joins/leaves and eligibility changes, then serializes writes. Normal-channel moves and mute/deafen changes do not cause extra database writes.
-- Saves unrounded UTC intervals at five-minute checkpoints and relevant transitions. Eligible time is not converted into points yet; Kyiv-day splitting/rounding belongs to settlement.
+- Saves unrounded UTC intervals at five-minute checkpoints and relevant transitions. Kyiv-day splitting and rounding happen at settlement, not on each visit.
 - Supports internal pause/resume with persistent `is_tracking`; Discord member commands arrive later. Pausing preserves earlier recorded time.
 - Records coverage even when voice channels are empty, allowing later reports to distinguish no activity from missing observations.
 - Starts a fresh baseline after restart, database failure, or gateway loss. Unsaved tails and offline gaps are not backfilled. A database write with an uncertain acknowledgement is not blindly retried.
@@ -147,11 +147,24 @@ The tracker:
 
 Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestamp. Status changes are logged safely to the console for now; hourly-updated Discord warnings are part of the later reporting stage.
 
+### Daily settlement (stage 3, gated with tracking)
+
+- Wakes at **00:00 Europe/Kyiv**, accounting for 23/25-hour DST days. Startup catch-up processes missed days in chronological order from the first tracking day—not before activation.
+- Flushes the tracker before closing eligible days, clips midnight-spanning intervals, sums all visits, and awards `floor(eligible milliseconds / 600000)` per member/day. Remainders never carry forward.
+- Uses one transaction for balance increments, unique server/day ledger, member/day results, and the settled-through watermark. Retrying after a timeout or running concurrent workers cannot repay a completed day.
+- Saves each member's post-payout balance so later payouts do not change earlier daily results. Zero-point activity is retained internally but is not an earning report entry.
+- Records coverage duration and incomplete-tracking flags, including partial activation days and fully offline missed days. Previously earned time still settles even if the member has since paused tracking.
+- Prevents delayed checkpoints from inserting new earnings before the settlement watermark.
+- Retries database failures with 1–5-minute bounded backoff. Catch-up yields after 31 days per batch. There is no per-minute accounting poll during healthy operation.
+- Only stores results and logs settlement status for now. Discord embed publication, durable published snapshots, and pagination are later work, independent of payout transactions. Member deletion will remove live daily results while retaining the day ledger to prevent replay.
+
+Migration `20261111020000_daily_settlement` must be explicitly approved/applied before deploying this version against an existing database. It adds settlement tables and a watermark; it does not activate tracking or issue payouts by itself.
+
 ### Database tests
 
-`npm test` runs offline tests and skips the PostgreSQL integration test by default. It never falls back to `DATABASE_URL` for integration testing.
+`npm test` runs offline tests and skips PostgreSQL integration tests by default. It never falls back to `DATABASE_URL` for integration testing. Test files run sequentially to bound connection pressure and support Prisma's local development database; concurrency protection is explicitly tested inside a transaction test.
 
-To test real persistence, provision a **disposable PostgreSQL test database**, apply the checked-in migration to it, and set `REPUTATION_TEST_DATABASE_URL` to that database before running tests. When applying test migrations, explicitly point both `DATABASE_URL` and `DIRECT_DATABASE_URL` at the test database so a local `.env` cannot accidentally select the hosted database. The tests create uniquely named fixture records and remove them afterward. Apply **all** checked-in migrations to the disposable database; opt-in tests cover settings persistence, tracking preferences, interval transactions, rollback, and stale-run fencing. Never point these tests at production.
+To test real persistence, provision a **disposable PostgreSQL test database**, apply the checked-in migration to it, and set `REPUTATION_TEST_DATABASE_URL` to that database before running tests. When applying test migrations, explicitly point both `DATABASE_URL` and `DIRECT_DATABASE_URL` at the test database so a local `.env` cannot accidentally select the hosted database. The tests create uniquely named fixture records and remove them afterward. Apply **all** checked-in migrations to the disposable database; opt-in tests cover settings persistence, tracking preferences, interval transactions, rollback, stale-run fencing, DST settlement, midnight splitting, concurrent payouts, immutable balance snapshots, and late checkpoint clipping. Never point these tests at production.
 
 ### Adding buttons
 

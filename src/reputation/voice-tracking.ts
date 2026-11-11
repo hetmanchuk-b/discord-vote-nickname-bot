@@ -2,6 +2,8 @@ import { ChannelType, Events } from 'discord.js';
 import type { Client, ClientEvents, Guild, VoiceState } from 'discord.js';
 import { createTrackingStore } from './tracking-store.js';
 import { CHECKPOINT_INTERVAL_MS, VoiceTracker } from './voice-tracker.js';
+import { SettlementScheduler } from './settlement-scheduler.js';
+import { createSettlementStore } from './settlement-store.js';
 
 export function getTrackingConfiguration(environment: NodeJS.ProcessEnv = process.env): {
   enabled: boolean;
@@ -52,6 +54,18 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
     },
   });
 
+  const settlements = new SettlementScheduler({
+    guildId,
+    store: createSettlementStore(),
+    beforeSettlement: async () => {
+      await tracker.checkpoint();
+      if (tracker.status === 'lease-lost') throw new Error('Tracking ownership was lost.');
+    },
+    onSettled: day => console.log(`Reputation settled for ${day.day}; report delivery is not enabled yet.`),
+    onUnavailable: () => console.warn('Reputation settlement unavailable; durable daily awards will be retried.'),
+    onRecovered: () => console.log('Reputation settlement recovered.'),
+  });
+
   function run(task: Promise<void>) {
     void task.catch(() => console.error('Reputation tracking operation failed.'));
   }
@@ -63,7 +77,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       return;
     }
     online = true;
-    run(tracker.start());
+    run(tracker.start().then(() => settlements.start()));
   }
   function observe() {
     if (online && !stopped) run(tracker.observe());
@@ -139,6 +153,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       client.off(Events.ShardReconnecting, shardReconnecting);
       client.off(Events.ShardResume, shardResume);
       client.off(Events.ShardReady, shardResume);
+      await settlements.stop();
       await tracker.stop();
     },
   };
