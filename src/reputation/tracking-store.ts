@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getReputationDatabase } from './database.js';
 import { saveTrackingPreference } from './tracking-preference.js';
+import { PublicationPendingError } from './report-errors.js';
 
 export class TrackingLeaseLostError extends Error {
   constructor() { super('Another tracking run owns this server.'); }
@@ -126,6 +127,13 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         // Same lock as checkpoints and settlement: delete and payout cannot race.
         await tx.reputationGuild.upsert({
           where: { guildId }, create: { guildId }, update: { updatedAt: at },
+        });
+        const publishing = await tx.reputationReportEntry.findFirst({
+          where: { guildId, userId, report: { status: 'publishing' } }, select: { reportId: true },
+        });
+        if (publishing) throw new PublicationPendingError();
+        await tx.reputationReportEntry.deleteMany({
+          where: { guildId, userId, report: { status: { in: ['pending', 'missing'] } } },
         });
         await tx.reputationVoiceInterval.deleteMany({ where: { guildId, userId } });
         await tx.reputationDailyAward.deleteMany({ where: { guildId, userId } });

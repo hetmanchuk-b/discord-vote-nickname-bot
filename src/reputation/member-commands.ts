@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Command } from '../types.js';
+import { formatVoiceTime } from '../utils/format-voice-time.js';
 import { DELETION_CONFIRMATION_MS, DELETE_CANCEL_ID, DELETE_CONFIRM_ID, deletionConfirmations } from './deletion-confirmations.js';
 import type { DeletionConfirmations } from './deletion-confirmations.js';
 
@@ -14,11 +15,6 @@ const definitions = {
   delete: ['reputation-delete', 'Видалити власні дані репутації після підтвердження.'],
 } as const;
 
-export function formatVoiceTime(milliseconds: number): string {
-  const seconds = Math.floor(milliseconds / 1000);
-  return `${Math.floor(seconds / 3600)} год ${Math.floor(seconds / 60) % 60} хв ${seconds % 60} с`;
-}
-
 function rulesEmbed() {
   return new EmbedBuilder()
     .setColor(0x5865F2)
@@ -28,7 +24,7 @@ function rulesEmbed() {
       { name: 'Що не враховується', value: 'Боти, AFK-канал сервера, Stage-канали, періоди особистої паузи та непідтверджений час під час збоїв.' },
       { name: 'Коли зараховуються бали', value: 'О 00:00 Europe/Kyiv за попередній календарний день. Неповні 10 хвилин відкидаються, а не переносяться. Після збою зарахування може бути відкладене.' },
       { name: 'Перевірка та керування', value: '`/reputation [user]` — зарахований баланс. `/voice-today [user]` — перевірений час і очікувані бали. `/reputation-off` та `/reputation-on` — пауза/відновлення без втрати попереднього прогресу. Відстеження типово увімкнене.' },
-      { name: 'Видалення', value: '`/reputation-delete` потребує підтвердження протягом 60 секунд. Баланс і живі дані скидаються; облік вимикається до `/reputation-on`. Мінімальний запис про вимкнений облік, опубліковані звіти та наявні резервні копії залишаються. Відновлення починається з нуля.' },
+      { name: 'Видалення', value: '`/reputation-delete` потребує підтвердження протягом 60 секунд. Баланс і живі дані скидаються; облік вимикається до `/reputation-on`. Мінімальний запис про вимкнений облік, опубліковані звіти та наявні резервні копії залишаються. Відновлення починається з нуля. Якщо доставка поточного звіту ще підтверджується, видалення потрібно повторити після її відновлення.' },
     );
 }
 
@@ -42,7 +38,7 @@ async function promptDeletion(interaction: ChatInputCommandInteraction, confirma
   const message = await interaction.editReply({
     content: '⚠️ **Видалити ваші дані репутації?**\n' +
       'Баланс, накопичений час і живі щоденні результати буде видалено. Облік залишиться вимкненим до `/reputation-on`; відновлення почнеться з нуля.\n\n' +
-      'Залишаться мінімальний запис про вимкнений облік, раніше опубліковані звіти та наявні резервні копії.\n' +
+      'Залишаться мінімальний запис про вимкнений облік, раніше опубліковані звіти та наявні резервні копії. Під час непідтвердженої доставки звіту може знадобитися повторна спроба.\n' +
       `Підтвердження діє 60 секунд — до <t:${Math.floor(expiresAt / 1000)}:T>.`,
     components: [row], allowedMentions: { parse: [] },
   });

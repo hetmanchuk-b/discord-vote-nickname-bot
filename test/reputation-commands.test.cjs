@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const { MessageFlags } = require('discord.js');
 const { createMemberCommand } = require('../dist/reputation/member-commands.js');
 const { createReputationButtons } = require('../dist/buttons/reputation.js');
+const { PublicationPendingError } = require('../dist/reputation/report-errors.js');
 const { DeletionConfirmations, DELETE_CONFIRM_ID, DELETE_CANCEL_ID } = require('../dist/reputation/deletion-confirmations.js');
 
 function fixture() {
@@ -167,6 +168,17 @@ test('expired or post-restart confirmations cannot delete data', async () => {
   await handlers[DELETE_CONFIRM_ID](buttonInteraction(f, DELETE_CONFIRM_ID));
   assert.deepEqual(f.calls, []);
   assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
+});
+
+test('in-flight publication asks the owner to retry deletion without claiming erasure', async () => {
+  const f = fixture();
+  const confirmations = new DeletionConfirmations();
+  const handlers = createReputationButtons(confirmations);
+  f.reputation.deleteData = async () => { throw new PublicationPendingError(); };
+  await createMemberCommand('delete', confirmations).execute(f.interaction);
+  await handlers[DELETE_CONFIRM_ID](buttonInteraction(f, DELETE_CONFIRM_ID));
+  assert.match(f.edits.at(-1).content, /Дані не видалено/);
+  assert.match(f.edits.at(-1).content, /Публікація/);
 });
 
 test('an uncertain deletion failure does not claim success and does not permit replay', async t => {

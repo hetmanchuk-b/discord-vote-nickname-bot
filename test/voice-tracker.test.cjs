@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { VoiceTracker, CHECKPOINT_INTERVAL_MS } = require('../dist/reputation/voice-tracker.js');
 const { TrackingLeaseLostError } = require('../dist/reputation/tracking-store.js');
+const { PublicationPendingError } = require('../dist/reputation/report-errors.js');
 
 const MINUTE = 60_000;
 const origin = Date.parse('2026-11-11T10:00:00Z');
@@ -283,6 +284,17 @@ test('deletion erases one member, preserves others, and queued work cannot resto
   f.at(15); await f.tracker.checkpoint();
   assert.equal(f.total('john'), 5);
   assert.equal(f.total('nathan'), 15);
+});
+
+test('an in-flight publication guard does not pause the member or invalidate healthy tracking', async () => {
+  const f = fixture();
+  f.present('john'); await f.tracker.start();
+  f.store.deleteMemberData = async () => { throw new PublicationPendingError(); };
+  f.at(3);
+  await assert.rejects(f.tracker.deleteData('john'), PublicationPendingError);
+  assert.equal(f.tracker.status, 'tracking');
+  f.at(5); await f.tracker.checkpoint();
+  assert.equal(f.total('john'), 5);
 });
 
 test('deletion failures do not claim success and force persisted-state recovery', async () => {

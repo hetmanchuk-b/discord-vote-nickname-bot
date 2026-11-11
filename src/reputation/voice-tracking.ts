@@ -4,6 +4,7 @@ import { createTrackingStore } from './tracking-store.js';
 import { CHECKPOINT_INTERVAL_MS, VoiceTracker } from './voice-tracker.js';
 import { SettlementScheduler } from './settlement-scheduler.js';
 import { createSettlementStore } from './settlement-store.js';
+import { createReportingRuntime } from './reporting.js';
 
 export function getTrackingConfiguration(environment: NodeJS.ProcessEnv = process.env): {
   enabled: boolean;
@@ -32,6 +33,7 @@ export function eligibleVoiceUserIds(guild: Guild): string[] {
 export interface VoiceTrackingRuntime {
   guildId?: string;
   tracker?: VoiceTracker;
+  reporting?: ReturnType<typeof createReportingRuntime>;
   stop(): Promise<void>;
 }
 
@@ -41,6 +43,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
   const guildId = config.guildId;
   let online = false;
   let stopped = false;
+  const reporting = createReportingRuntime(client, guildId);
   const tracker = new VoiceTracker({
     guildId,
     store: createTrackingStore(),
@@ -49,8 +52,8 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       return guild ? eligibleVoiceUserIds(guild) : [];
     },
     onStatus: event => {
-      // Public, throttled warning messages are added in the reporting stage.
-      if (event.status === 'recovered') console.log('Reputation tracking storage recovered.');
+      run(reporting.issue('tracking', event.status !== 'recovered'));
+      if (event.status === 'recovered') console.log('Reputation tracking recovered.');
       else console.warn(`Reputation tracking ${event.status}: ${event.reason}. Only persisted time is retained.`);
     },
   });
@@ -62,9 +65,9 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       await tracker.checkpoint();
       if (tracker.status === 'lease-lost') throw new Error('Tracking ownership was lost.');
     },
-    onSettled: day => console.log(`Reputation settled for ${day.day}; report delivery is not enabled yet.`),
-    onUnavailable: () => console.warn('Reputation settlement unavailable; durable daily awards will be retried.'),
-    onRecovered: () => console.log('Reputation settlement recovered.'),
+    onSettled: () => { run(reporting.publish()); },
+    onUnavailable: () => { run(reporting.issue('settlement', true)); },
+    onRecovered: () => { run(reporting.issue('settlement', false)); },
   });
 
   function run(task: Promise<void>) {
@@ -78,7 +81,12 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       return;
     }
     online = true;
-    run(tracker.start().then(() => settlements.start()));
+    run(reporting.start());
+    run(tracker.start().then(async () => {
+      await reporting.issue('tracking', tracker.status !== 'tracking');
+      await settlements.start();
+      await reporting.issue('settlement', !settlements.healthy);
+    }));
   }
   function observe() {
     if (online && !stopped) run(tracker.observe());
@@ -137,6 +145,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
   return {
     guildId,
     tracker,
+    reporting,
     async stop() {
       if (stopped) return;
       stopped = true;
@@ -157,6 +166,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       client.off(Events.ShardReady, shardResume);
       await settlements.stop();
       await tracker.stop();
+      await reporting.stop();
     },
   };
 }

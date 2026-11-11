@@ -6,6 +6,7 @@ import interactionCreate from './events/interaction-create.js';
 import { disconnectReputationDatabase } from './reputation/database.js';
 import { attachVoiceTracking } from './reputation/voice-tracking.js';
 import { createMemberReputation } from './reputation/member-reputation.js';
+import { createReportNavigation } from './reputation/reporting.js';
 
 const { token } = loadConfig();
 const client = new Client({
@@ -26,6 +27,9 @@ client.shuffleSessions = new Collection();
 client.once(ready.name, ready.execute);
 client.on(interactionCreate.name, interactionCreate.execute);
 const voiceTracking = attachVoiceTracking(client);
+client.reputationReports = createReportNavigation(async (guildId, channelId) => {
+  if (voiceTracking.guildId === guildId) await voiceTracking.reporting?.channelChanged(channelId);
+});
 client.reputation = createMemberReputation({
   getTracker: guildId => voiceTracking.guildId === guildId ? voiceTracking.tracker : undefined,
 });

@@ -1,4 +1,5 @@
 import { TrackingLeaseLostError } from './tracking-store.js';
+import { PublicationPendingError } from './report-errors.js';
 import type { TrackingChange, TrackingStore } from './tracking-store.js';
 
 export const CHECKPOINT_INTERVAL_MS = 5 * 60_000;
@@ -104,12 +105,17 @@ export class VoiceTracker {
     return this.enqueue(async () => {
       // Flush everyone first so deleting one member does not discard others' tails.
       if (!this.suspended && !this.leaseLost && this.runId) await this.process(observation, true);
+      const wasPaused = this.paused.has(userId);
       this.paused.add(userId);
       const now = this.now();
       const at = this.cursor && this.cursor > now ? this.cursor : now;
       try {
         await this.options.store.deleteMemberData(this.options.guildId, userId, at);
       } catch (error) {
+        if (error instanceof PublicationPendingError) {
+          if (!wasPaused) this.paused.delete(userId);
+          throw error; // Known rollback; keep the tracker healthy while delivery reconciles.
+        }
         // Unknown commit outcome: discard caches and reload persisted opt-outs on recovery.
         this.failed(error);
         // eslint-disable-next-line preserve-caught-error

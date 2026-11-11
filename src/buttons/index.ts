@@ -3,6 +3,8 @@ import type { ButtonInteraction } from 'discord.js';
 import type { ButtonHandler } from '../types.js';
 import { shuffleButtons } from './shuffle.js';
 import { reputationButtons } from './reputation.js';
+import { handleReputationPage } from './reputation-report.js';
+import { REPORT_PAGE_PREFIX } from '../reputation/report-render.js';
 
 // Register additional button groups here; the event dispatcher stays unchanged.
 const handlers: ReadonlyMap<string, ButtonHandler> = new Map(Object.entries({
@@ -11,7 +13,8 @@ const handlers: ReadonlyMap<string, ButtonHandler> = new Map(Object.entries({
 }));
 
 export async function handleButton(interaction: ButtonInteraction) {
-  const handler = handlers.get(interaction.customId);
+  const handler = handlers.get(interaction.customId) ??
+    (interaction.customId.startsWith(REPORT_PAGE_PREFIX) ? handleReputationPage : undefined);
   if (!handler) {
     console.log(`Unhandled button interaction: ${interaction.customId}`);
     return;

@@ -6,6 +6,7 @@ const process = require('node:process');
 const { Events, Collection, ChannelType } = require('discord.js');
 const storeModule = require('../dist/reputation/tracking-store.js');
 const settlementModule = require('../dist/reputation/settlement-store.js');
+const reportingModule = require('../dist/reputation/reporting.js');
 const { attachVoiceTracking } = require('../dist/reputation/voice-tracking.js');
 
 const guildId = '111111111111111111';
@@ -16,6 +17,10 @@ test('Discord runtime checkpoints only its configured server and suspends across
   const calls = { opened: 0, checkpoints: 0, closed: 0 };
   const timers = [];
   t.mock.method(console, 'warn', () => {});
+  t.mock.method(reportingModule, 'createReportingRuntime', () => ({
+    start: async () => {}, publish: async () => {}, issue: async () => {},
+    channelChanged: async () => {}, stop: async () => {},
+  }));
   t.mock.method(settlementModule, 'createSettlementStore', () => ({ settleNextClosedDay: async () => null }));
   t.mock.method(storeModule, 'createTrackingStore', () => ({
     openRun: async () => ({ runId: `run-${++calls.opened}`, pausedUserIds: [] }),

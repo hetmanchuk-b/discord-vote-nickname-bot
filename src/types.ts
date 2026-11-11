@@ -9,6 +9,7 @@ import type {
 } from 'discord.js';
 
 import type { ReputationMembers } from './reputation/member-reputation.js';
+import type { ReputationReports } from './reputation/reporting.js';
 
 export interface Command {
   data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder;
@@ -41,6 +42,7 @@ declare module 'discord.js' {
     cooldowns: Collection<string, Collection<string, number>>;
     shuffleSessions: Collection<string, ShuffleSession>;
     reputation: ReputationMembers;
+    reputationReports: ReputationReports;
   }
 }
 

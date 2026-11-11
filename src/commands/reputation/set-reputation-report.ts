@@ -62,6 +62,9 @@ export function createSetReputationReportCommand(
         }
 
         await settings.setReportChannelId(interaction.guild.id, channel.id);
+        const reporting = interaction.client?.reputationReports;
+        if (reporting) void reporting.channelChanged(interaction.guild.id, channel.id)
+          .catch(() => console.warn('Report delivery will retry after the channel configuration change.'));
         await interaction.editReply(`✅ Канал звітів і попереджень репутації: <#${channel.id}>.`);
       } catch {
         // Do not log raw driver errors: connection strings can contain credentials.

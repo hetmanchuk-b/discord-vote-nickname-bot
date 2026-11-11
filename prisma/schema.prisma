@@ -10,7 +10,7 @@ datasource db {
   provider = "postgresql"
 }
 
-// Stage 4: member controls and erasure-safe eligibility cutoffs.
+// Stage 5: durable publication snapshots and reusable operational warnings.
 model ReputationGuild {
   guildId         String   @id @map("guild_id") @db.VarChar(20)
   reportChannelId String?  @map("report_channel_id") @db.VarChar(20)
@@ -23,6 +23,8 @@ model ReputationGuild {
   members      ReputationMember[]
   trackingRuns ReputationTrackingRun[]
   settlements  ReputationSettlement[]
+  reports      ReputationReport[]
+  warning      ReputationWarning?
 
   @@map("reputation_guilds")
 }
@@ -93,6 +95,7 @@ model ReputationSettlement {
 
   guild  ReputationGuild        @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
   awards ReputationDailyAward[]
+  report ReputationReport?
 
   @@id([guildId, day])
   @@map("reputation_settlements")
@@ -114,4 +117,69 @@ model ReputationDailyAward {
   @@id([guildId, userId, day])
   @@index([guildId, day, points, eligibleMs, userId])
   @@map("reputation_daily_awards")
+}
+
+enum ReputationReportStatus {
+  pending
+  publishing
+  published
+  missing
+}
+
+model ReputationReport {
+  id            String                 @id @db.Uuid
+  guildId       String                 @map("guild_id") @db.VarChar(20)
+  day           String                 @db.VarChar(10)
+  status        ReputationReportStatus @default(pending)
+  channelId     String?                @map("channel_id") @db.VarChar(20)
+  messageId     String?                @unique @map("message_id") @db.VarChar(20)
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  preparedAt    DateTime?              @map("prepared_at") @db.Timestamptz(3)
+  lastAttemptAt DateTime?              @map("last_attempt_at") @db.Timestamptz(3)
+  publishedAt   DateTime?              @map("published_at") @db.Timestamptz(3)
+  activityMs    BigInt                 @default(0) @map("activity_ms")
+  pointsAwarded Int                    @default(0) @map("points_awarded")
+  entryCount    Int                    @default(0) @map("entry_count")
+
+  guild      ReputationGuild         @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
+  settlement ReputationSettlement    @relation(fields: [guildId, day], references: [guildId, day], onDelete: Restrict)
+  entries    ReputationReportEntry[]
+
+  @@unique([guildId, day])
+  @@index([guildId, status, day])
+  @@map("reputation_reports")
+}
+
+// Intentionally NOT linked to ReputationMember: published history survives erasure.
+model ReputationReportEntry {
+  reportId     String @map("report_id") @db.Uuid
+  guildId      String @map("guild_id") @db.VarChar(20)
+  userId       String @map("user_id") @db.VarChar(20)
+  position     Int
+  eligibleMs   Int    @map("eligible_ms")
+  points       Int
+  balanceAfter Int    @map("balance_after")
+
+  report ReputationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@id([reportId, position])
+  @@unique([reportId, userId])
+  @@index([guildId, userId])
+  @@map("reputation_report_entries")
+}
+
+model ReputationWarning {
+  guildId           String    @id @map("guild_id") @db.VarChar(20)
+  channelId         String?   @map("channel_id") @db.VarChar(20)
+  messageId         String?   @map("message_id") @db.VarChar(20)
+  reasons           String[]  @default([])
+  activeSince       DateTime? @map("active_since") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamptz(3)
+  lastEditedAt      DateTime? @map("last_edited_at") @db.Timestamptz(3)
+  displayedActive   Boolean   @default(false) @map("displayed_active")
+  deliveryUncertain Boolean   @default(false) @map("delivery_uncertain")
+
+  guild ReputationGuild @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
+
+  @@map("reputation_warnings")
 }

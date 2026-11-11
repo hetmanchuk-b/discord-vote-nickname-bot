@@ -1,6 +1,6 @@
 # Voice Reputation — Planning Specification
 
-Status: **stages 1–4 implemented: storage, voice tracking, daily settlement, and member commands/deletion**. Tracking and settlement remain behind an **OFF-by-default flag**. Report delivery, public warnings, and backups are still future work.
+Status: **stages 1–5 implemented**, including member commands, daily embed delivery, shared pagination, and throttled operational warnings. All background reputation activity remains behind an **OFF-by-default flag**. Backups and the final deployment walkthrough remain future work.
 
 ## Implementation progress
 
@@ -9,12 +9,14 @@ Status: **stages 1–4 implemented: storage, voice tracking, daily settlement, a
 - Stage 3: DST-safe Kyiv-day boundaries, transactional whole-point payouts, immutable post-payout balance values in daily results, coverage summaries, duplicate-payout prevention, and startup/midnight catch-up with bounded retries.
 - Stage 4: public balance/today commands, ephemeral rules and pause/resume commands, caller-bound 60-second deletion confirmation, and transactional live-data erasure. A monotonic member eligibility cutoff protects against stale work after deletion/re-enrollment.
 - With the user's approval, stage-4 migration `20261111030000_member_controls` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all four migrations are up to date. All **124 tests** passed against a disposable local database with integration tests enabled; schema validation, type-check, lint, and build also passed. Discord command deployment has not been run.
-- The initial schema stores server-scoped report destinations and member identities, integer balances, and `is_tracking` (default true). Stage 2 adds tracking runs and voice intervals. Stage 3 adds unique day ledgers, member/day results, and a settled-through watermark. Immutable published report snapshots remain future work.
-- With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until reports and public warnings are ready.
+- Stage 5: positive-earner embeds (5 per shared page), durable publication snapshots/message identities, lost-acknowledgement reconciliation, and a reusable hourly-updated warning message aggregating tracking/settlement/delivery health.
+- With the user's approval, stage-5 migration `20261111040000_reports_and_warnings` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all five migrations are up to date. All **164 tests** passed with local database integration enabled, including snapshot retention, erasure/publication races, shared navigation, lost acknowledgements, warning recovery, and throttling. Schema validation, type-check, lint, and build also passed. Discord transport was mocked: no live messages or command deployment were performed. Background activity remains disabled by default.
+- The initial schema stores server-scoped report destinations and member identities, integer balances, and `is_tracking` (default true). Stage 2 adds tracking runs and voice intervals. Stage 3 adds unique day ledgers, member/day results, and a settled-through watermark. Stage 5 adds published report snapshots, delivery state, and persistent warning metadata.
+- With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until deployment verification is complete and activation is explicitly chosen.
 - Database schema changes are explicit deployment steps; no migration is run automatically at startup. With the user's approval, `20261111000000_reputation_foundation` was applied to the configured Prisma database using `prisma migrate deploy`; subsequent `prisma migrate status` confirmed the schema is up to date.
 - With the user's approval, stage-3 migration `20261111020000_daily_settlement` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all three migrations are up to date. Applying this migration does not activate tracking or issue payouts by itself.
 - Stage-3 verification: all **85 tests** passed with integration tests enabled against a disposable local Prisma PostgreSQL-compatible database, including SQL rollback, concurrent payouts, DST days, midnight splitting, and stale checkpoint clipping. Schema validation, type-check, lint, and build also passed. The local database process was stopped afterward.
-- Next stages: reports/warnings; backups/deployment.
+- Next stage: backups/deployment and guided GitHub Actions setup.
 - Obtain user confirmation before applying further migrations to the hosted database. See `README.md` for stage-1 setup and testing instructions.
 
 ## Purpose
@@ -64,7 +66,7 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Stage 3 implements a unique server/day ledger and serializes tracking/settlement on the server row. Balance increments, daily results, and the closed-day watermark commit atomically. Removing member-level results cannot enable replay of a settled day.
 - Late tracking writes are clipped to the watermark. Coverage and results for completed days remain frozen, rather than being silently revised by a delayed checkpoint.
 - Healthy scheduling wakes at Kyiv midnight and startup, not by querying every minute. Database failures use bounded 1–5-minute retries; long catch-up queues yield after 31 days per batch.
-- Member/day results retain the day's eligible milliseconds, points, and settled balance. These are live reputation records that deletion may remove; permanently retained published-history snapshots will be implemented separately in the reporting stage.
+- Member/day results retain the day's eligible milliseconds, points, and settled balance. These are live reputation records that deletion may remove. Stage 5 separately freezes published-history snapshots with no member foreign key, so published statistics survive erasure.
 
 ## Commands and transparency
 
@@ -106,7 +108,7 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Remove/reset the live balance, pending earnings, voice records, and member-level daily reward data, while keeping the minimum user identity and `is_tracking = false`. Do not remove frozen historical report snapshots.
 - Tracking remains disabled until the caller explicitly uses `/reputation-on`. The user proposed `is_tracking` on the user table; this is suitable. Prisma may expose it as `isTracking` while mapping the database column to `is_tracking`.
 - Do not update already published historical reports or their saved pagination data. Historical daily points, balance snapshots, and aggregates remain unchanged.
-- Do not include deleted live data in future reports, including reports not yet published. Stage 4 removes all live member/day rows used as pending report entries. The later publisher must use those live rows for unpublished reports, and a separate frozen snapshot for published history, never reconstruct erased entries from old accounting summaries.
+- Do not include deleted live data in future reports, including reports not yet published. Stage 4 removes all live member/day rows used as pending report entries. The stage-5 publisher uses those live rows when freezing unpublished reports, and a separate frozen snapshot for published history; it never reconstructs erased entries from old accounting summaries.
 - Do not clear or rewrite existing backups in response to deletion. Routine backup retention is a separate policy. Restoring an old backup can restore deleted data or an outdated tracking preference; define and disclose restore handling rather than promising automatic deletion replay.
 - Stage 4 coordinates deletion with the tracker's serial queue and the same server-row database lock used by settlement. Erasure, the zero balance, and the disabled flag commit together; failure rolls everything back. Stale checkpoints are clipped to the monotonic `tracking_since` cutoff after re-enrollment, and day ledgers remain to prevent duplicate payouts.
 - The retained record contains the server/user IDs, zero balance, disabled flag, eligibility cutoff, and reset bookkeeping timestamps, not the member's previous activity history.
@@ -158,7 +160,7 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - An uncertain checkpoint acknowledgement is not blindly replayed. Recovery starts a fresh run, accepting only intervals that actually committed.
 - After more than six minutes without a successful checkpoint, drop the unsaved tail and start a fresh baseline (five-minute schedule plus one-minute grace). This conservatively excludes long event-loop/host suspensions.
 - Discord disconnects or unavailable guilds suspend tracking. Reconnects reconcile current eligible members; queued pre-recovery snapshots cannot retroactively credit downtime.
-- Stage 2 logs status changes to the console only. Public warning delivery/throttling remains a later stage.
+- Stage 5 aggregates tracking, settlement, and delivery issues in one warning message. An initial alert and final recovery edit are immediate; ongoing edits are at most hourly, with no repeated pings. IDs and last-edit metadata persist; warm-process cached state can still deliver alerts while the database is down. Cold-start database failure or inaccessible channels fall back to safe logging and bounded retry.
 
 ## Technical design (partially implemented; see progress above)
 
@@ -217,13 +219,13 @@ Source: https://www.prisma.io/pricing
 
 ## Open rules and product decisions
 
-1. Define behavior for deleted report messages and simultaneous pagination clicks.
-2. Finalize report layout and operational warning presentation.
-3. Decide whether changing the report channel affects old report messages or only future/undelivered reports.
+1. Stage 5 resolves navigation and missing-message behavior: serialize edits per message, retain restart-safe snapshots, never automatically recreate published/deleted history. A missing in-flight message becomes terminal `missing`.
+2. Stage 5 uses one positive-earner embed with 5 rows/page, time/points/frozen balance, coverage warnings, and original-day labels. Operational issues share one reusable warning embed.
+3. Channel changes affect pending/unfrozen reports and future/current warnings, not historical published messages or already-frozen in-flight deliveries.
 4. Should any administrative balance adjustments or corrections be allowed? None are currently specified.
 5. Verify provider metering and finalize a backup/export policy. Stage 1 selects Prisma 7.10.1 with the PostgreSQL adapter and explicit versioned migration deployment.
 6. Decide raw session/checkpoint retention versus long-term daily summary retention.
 7. Decide how Discord warnings are handled if the configured channel is inaccessible. Stage 2 implements conservative checkpoint/reconnect reconciliation and bounded retries.
-8. Finalize the report publisher's handling of deleted pending entries versus retained published snapshots. Stage 4 removes the live member/day rows; the publisher must not recreate them.
+8. Stage 5 resolves erasure/publication races: live rows are read while freezing under the server lock; erasure of an affected member is temporarily rejected while Discord publication is unconfirmed. After marker reconciliation, historical snapshots remain and live erasure can proceed. If access to the original channel is lost, restore access so reconciliation can finish.
 9. Confirm the external backup scheduler, export retention/encryption, access secrets, and failure monitoring. The user requests step-by-step guidance for GitHub Actions; no workflow has been created yet.
 10. Specify backup restore handling so an old backup does not silently undo a user's deletion or opt-out. Existing backups are not rewritten on deletion.

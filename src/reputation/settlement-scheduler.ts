@@ -24,6 +24,8 @@ export class SettlementScheduler {
     this.now = options.now ?? (() => new Date());
   }
 
+  get healthy(): boolean { return !this.stopped && this.failures === 0; }
+
   start(): Promise<void> {
     if (!this.stopped) return this.running ?? Promise.resolve();
     this.stopped = false;

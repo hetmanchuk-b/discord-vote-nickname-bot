@@ -93,9 +93,9 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 - `src/generated/` — generated Prisma Client (ignored; included in compiled `dist/`)
 - `test/` — offline tests against the compiled output (no Discord login required)
 
-## Reputation: stages 1–4
+## Reputation: stages 1–5
 
-The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stage 1 adds storage and `/set-reputation-report id:<channel ID>`. Stage 2 adds an opt-in voice tracker. Stage 3 adds daily settlement. Stage 4 adds member commands and confirmed self-service deletion. **Tracking and settlement remain OFF by default; reports, public operational warnings, and backups are not implemented yet.** Setting a channel or enabling a personal preference does not activate the global tracking flag.
+The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stages 1–4 implement storage, voice tracking, daily settlement, and member controls. Stage 5 adds daily reports, durable shared pagination, and operational warnings. **Background tracking, settlement, reports, and warnings remain OFF by default. Backups and the final deployment walkthrough are still pending.** Setting a channel or enabling a personal preference does not activate the global tracking flag.
 
 Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime database access uses a lazy pool of at most 3 connections with finite query/connection timeouts. The bot's existing commands and slash-command deployment do not require a database connection.
 
@@ -131,7 +131,7 @@ Production installation can use `npm ci --omit=dev`. Migrations require the deve
 
 ### Voice tracker (stage 2, disabled by default)
 
-Keep `REPUTATION_TRACKING_ENABLED=false` while reports and public operational warnings are unfinished. This flag gates **both tracking and settlement**. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
+Keep `REPUTATION_TRACKING_ENABLED=false` until deployment checks are complete and you explicitly choose to activate it. This flag gates **tracking, settlement, report delivery, and operational warnings**; historical pagination and member commands remain available with a healthy database. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
 
 The tracker:
 
@@ -145,7 +145,7 @@ The tracker:
 - Uses bounded recovery backoff, serial checkpoints, and database ownership tokens to fence out a replaced tracker. Run only one active bot instance for this server.
 - Flushes on graceful shutdown. Abrupt termination can lose approximately up to five minutes of recent progress under normal operation; outages may lose more.
 
-Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestamp. Status changes are logged safely to the console for now; hourly-updated Discord warnings are part of the later reporting stage.
+Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestamp. Status changes feed the reusable warning message described below and are logged without driver credentials.
 
 ### Daily settlement (stage 3, gated with tracking)
 
@@ -156,7 +156,7 @@ Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestam
 - Records coverage duration and incomplete-tracking flags, including partial activation days and fully offline missed days. Previously earned time still settles even if the member has since paused tracking.
 - Prevents delayed checkpoints from inserting new earnings before the settlement watermark.
 - Retries database failures with 1–5-minute bounded backoff. Catch-up yields after 31 days per batch. There is no per-minute accounting poll during healthy operation.
-- Only stores results and logs settlement status for now. Discord embed publication, durable published snapshots, and pagination are later work, independent of payout transactions. Member deletion will remove live daily results while retaining the day ledger to prevent replay.
+- Queues independent report publication after settlement. Discord failures do not roll back payouts or cause a second payout. Member deletion removes live daily results while retaining the day ledger to prevent replay.
 
 Migration `20261111020000_daily_settlement` must be explicitly approved/applied before deploying this version against an existing database. It adds settlement tables and a watermark; it does not activate tracking or issue payouts by itself.
 
@@ -179,13 +179,34 @@ All commands are server-only. User options use Discord's member/user picker, not
 
 Deletion removes the live balance, all member voice intervals, and member/day results (including entries not yet published). It retains the disabled identity and a monotonic eligibility cutoff, untouched day ledgers/anonymous accounting summaries, previously published report history, and existing backups. Nothing changes until the owner confirms. Expired, cancelled, repeated, foreign-user/server, or post-restart confirmation clicks cannot authorize deletion.
 
-Deletion and tracking-preference changes serialize with the active tracker. Database writes also hold the same server-row lock as settlement. The `tracking_since` cutoff prevents queued pre-erasure/resume work from restoring old time. A deletion failure with an uncertain commit outcome asks the caller to verify/retry instead of claiming success. `/reputation-on` after deletion starts at zero. Historical Discord reports are not edited; their dedicated saved snapshots arrive in the reporting stage.
+Deletion and tracking-preference changes serialize with the active tracker. Database writes also hold the same server-row lock as settlement. The `tracking_since` cutoff prevents queued pre-erasure/resume work from restoring old time. A deletion failure with an uncertain commit outcome asks the caller to verify/retry instead of claiming success. `/reputation-on` after deletion starts at zero. Historical Discord reports are not edited by deletion; their saved snapshots survive. If a report containing the member is in the middle of an unconfirmed Discord delivery, deletion returns a retry message without erasing data or pausing healthy tracking. Restore access to the original report channel if reconciliation is blocked by permissions.
+
+### Reports and operational warnings (stage 5)
+
+Review/apply `20261111040000_reports_and_warnings` before deploying this version. It adds report snapshots, publication state, and warning metadata; applying it does not send messages or activate tracking.
+
+Daily reports use one public embed with **5 positive earners per page** and shared Previous/Next buttons. Each entry includes eligible time, daily points, and the frozen settled balance. Order is daily points descending, eligible time descending, then user ID ascending. Everyone can navigate, but cannot change saved data. Navigation acknowledges clicks immediately and serializes edits to the same message; saved message identity and snapshots keep old buttons working after restarts, even when background tracking is disabled.
+
+A fully observed empty day says `No activity recorded`. Recorded sub-threshold activity says `No reputation earned today`, without zero-point rows. Missing observations say `No verified activity recorded` with an incomplete-coverage warning. Catch-up reports retain the original Kyiv date and indicate delayed delivery/confirmation. Embeds and warnings disable mention notifications.
+
+Publication is separate from payout:
+
+1. Queue one report per settled server/day. Missing channels or permissions leave it queued with bounded retry.
+2. Create/recover an **empty placeholder** with a stable marker and nonce. It contains no member statistics.
+3. Under the server-row lock, read current live daily results, freeze all positive-earner pages, and mark the report `publishing` **before** editing Discord.
+4. Edit the saved placeholder and mark the report `published`. An uncertain acknowledgement is reconciled by reading that same message's author/marker, not by sending another populated report.
+
+Deletion before freezing removes the user from future report data. During uncertain publication, deletion of affected members waits for reconciliation (the caller receives a retry instruction); after confirmation, deletion preserves the historical snapshot. A definitively missing in-flight message is marked `missing`, releases the erasure guard, and is not automatically republished. Already published messages deleted by administrators are not recreated. Channel changes move only pending/unfrozen reports and current warnings; published history and in-flight frozen reports keep their original destination.
+
+Discord's nonce deduplication covers only the [past few minutes](https://docs.discord.com/developers/resources/message#create-message). Placeholder recovery scans up to 200 recent channel messages; a rare orphaned **empty** placeholder is possible after long acknowledgement loss in a busy channel. This is not a permanent exactly-once guarantee for Discord sends. Populated reports use the single saved message ID; payout idempotency remains a database guarantee.
+
+Operational warnings combine tracking, settlement, and report-delivery health in **one reusable message** in the configured channel: initial alert, ongoing edits no more than hourly, and a final recovery edit once all issue groups clear. IDs/throttle metadata and uncertain-delivery intent survive restarts when database persistence is available; repeated incidents reuse the message without pings. During a database outage, an already known channel/message can still be updated from memory. At cold start without database access, or if the channel is inaccessible, the bot logs and retries rather than guessing a channel or spamming messages. These limitations do not grant voice credit for missing observations.
 
 ### Database tests
 
 `npm test` runs offline tests and skips PostgreSQL integration tests by default. It never falls back to `DATABASE_URL` for integration testing. Test files run sequentially to bound connection pressure and support Prisma's local development database; concurrency protection is explicitly tested inside a transaction test.
 
-To test real persistence, provision a **disposable PostgreSQL test database**, apply the checked-in migration to it, and set `REPUTATION_TEST_DATABASE_URL` to that database before running tests. When applying test migrations, explicitly point both `DATABASE_URL` and `DIRECT_DATABASE_URL` at the test database so a local `.env` cannot accidentally select the hosted database. The tests create uniquely named fixture records and remove them afterward. Apply **all** checked-in migrations to the disposable database; opt-in tests cover settings persistence, tracking preferences, interval transactions, rollback, stale-run fencing, DST settlement, midnight splitting, concurrent payouts, immutable balance snapshots, late checkpoint clipping, member statistics, pause cutoffs, deletion rollback, and concurrent deletion/settlement. Never point these tests at production.
+To test real persistence, provision a **disposable PostgreSQL test database**, apply the checked-in migration to it, and set `REPUTATION_TEST_DATABASE_URL` to that database before running tests. When applying test migrations, explicitly point both `DATABASE_URL` and `DIRECT_DATABASE_URL` at the test database so a local `.env` cannot accidentally select the hosted database. The tests create uniquely named fixture records and remove them afterward. Apply **all** checked-in migrations to the disposable database; opt-in tests cover settings persistence, tracking preferences, interval transactions, rollback, stale-run fencing, DST settlement, midnight splitting, concurrent payouts, immutable balance snapshots, late checkpoint clipping, member statistics, pause cutoffs, deletion rollback, concurrent deletion/settlement, report snapshot retention and erasure races, restart-safe pages, lost delivery acknowledgements, and warning persistence. Discord transport is mocked in tests; no live bot login or channel publication is performed. Never point these tests at production.
 
 ### Adding buttons
 

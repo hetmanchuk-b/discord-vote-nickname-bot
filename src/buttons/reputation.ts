@@ -2,6 +2,7 @@ import { MessageFlags } from 'discord.js';
 import type { ButtonHandler } from '../types.js';
 import { DELETE_CANCEL_ID, DELETE_CONFIRM_ID, deletionConfirmations } from '../reputation/deletion-confirmations.js';
 import type { DeletionConfirmations } from '../reputation/deletion-confirmations.js';
+import { PublicationPendingError } from '../reputation/report-errors.js';
 
 export function createReputationButtons(confirmations: DeletionConfirmations = deletionConfirmations): Record<string, ButtonHandler> {
   function handler(confirm: boolean): ButtonHandler {
@@ -30,7 +31,11 @@ export function createReputationButtons(confirmations: DeletionConfirmations = d
             'Для нового старту використайте `/reputation-on`. Мінімальний запис про вимкнений облік, опубліковані звіти та резервні копії залишено.',
           components: [], allowedMentions: { parse: [] },
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof PublicationPendingError) return interaction.editReply({
+          content: '⏳ Публікація звіту ще підтверджується. Дані не видалено; повторіть `/reputation-delete` після відновлення доставки звітів.',
+          components: [],
+        });
         console.error('Could not confirm reputation data deletion.');
         return interaction.editReply({
           content: '❌ Не вдалося підтвердити видалення. Перевірте `/reputation` та `/voice-today` або повторіть `/reputation-delete`.',
