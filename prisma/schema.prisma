@@ -1,0 +1,75 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "cjs"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Stage 2: raw verified intervals and coverage; settlement tables arrive later.
+model ReputationGuild {
+  guildId         String   @id @map("guild_id") @db.VarChar(20)
+  reportChannelId String?  @map("report_channel_id") @db.VarChar(20)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  trackingRunId String? @map("tracking_run_id") @db.Uuid
+
+  members      ReputationMember[]
+  trackingRuns ReputationTrackingRun[]
+
+  @@map("reputation_guilds")
+}
+
+model ReputationMember {
+  guildId    String   @map("guild_id") @db.VarChar(20)
+  userId     String   @map("user_id") @db.VarChar(20)
+  isTracking Boolean  @default(true) @map("is_tracking")
+  balance    Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  guild     ReputationGuild           @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
+  intervals ReputationVoiceInterval[]
+
+  @@id([guildId, userId])
+  @@map("reputation_members")
+}
+
+// Coverage is [startedAt, verifiedThrough), NOT [startedAt, closedAt).
+// A replacement process starts a new run; offline gaps never become voice time.
+model ReputationTrackingRun {
+  id              String    @id @db.Uuid
+  guildId         String    @map("guild_id") @db.VarChar(20)
+  startedAt       DateTime  @map("started_at") @db.Timestamptz(3)
+  verifiedThrough DateTime  @map("verified_through") @db.Timestamptz(3)
+  closedAt        DateTime? @map("closed_at") @db.Timestamptz(3)
+  endReason       String?   @map("end_reason") @db.VarChar(32)
+
+  guild     ReputationGuild           @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
+  intervals ReputationVoiceInterval[]
+
+  @@index([guildId, startedAt])
+  @@map("reputation_tracking_runs")
+}
+
+// Unrounded, half-open UTC intervals. Daily Kyiv boundaries are applied at settlement.
+model ReputationVoiceInterval {
+  id        BigInt   @id @default(autoincrement())
+  guildId   String   @map("guild_id") @db.VarChar(20)
+  userId    String   @map("user_id") @db.VarChar(20)
+  runId     String   @map("run_id") @db.Uuid
+  startedAt DateTime @map("started_at") @db.Timestamptz(3)
+  endedAt   DateTime @map("ended_at") @db.Timestamptz(3)
+
+  member ReputationMember      @relation(fields: [guildId, userId], references: [guildId, userId], onDelete: Cascade)
+  run    ReputationTrackingRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@index([guildId, endedAt, startedAt])
+  @@index([guildId, userId, startedAt])
+  @@map("reputation_voice_intervals")
+}

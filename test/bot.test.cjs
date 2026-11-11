@@ -12,11 +12,11 @@ const interactionCreate = require('../dist/events/interaction-create.js').defaul
 
 const variant = (text, reactionCount = 0) => ({ text, reactionCount });
 
-test('all eight compiled commands load and serialize for deployment', () => {
+test('all nine compiled commands load and serialize for deployment', () => {
   const commands = loadCommands();
   assert.deepEqual([...commands.keys()].sort(), [
     'archive', 'dw', 'nickname-end', 'nickname-manage-result',
-    'nickname-start', 'nickname-variants', 'nickname-variants-by', 'yok',
+    'nickname-start', 'nickname-variants', 'nickname-variants-by', 'set-reputation-report', 'yok',
   ]);
   for (const [name, command] of commands) {
     assert.equal(command.data.toJSON().name, name);

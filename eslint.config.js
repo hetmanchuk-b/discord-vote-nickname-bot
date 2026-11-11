@@ -2,7 +2,7 @@ const js = require('@eslint/js');
 const tseslint = require('typescript-eslint');
 
 module.exports = tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'src/generated/**'] },
   js.configs.recommended,
   tseslint.configs.recommended,
   {

@@ -4,18 +4,28 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "build": "npm run db:generate && tsc",
+    "typecheck": "npm run db:generate && tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
     "lint": "eslint .",
     "test": "npm run build && node --test test/*.test.cjs",
     "commands": "npm run build && node ./dist/deploy-commands.js",
-    "start": "npm run build && node ./dist/index.js"
+    "start": "node ./dist/index.js",
+    "dev": "npm run build && node ./dist/index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "discord.js": "14.26.4",
     "media-downloader-ez": "^2.1.9"
   },
@@ -23,6 +33,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
     "eslint": "^10.5.0",
+    "prisma": "7.10.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2"
   }

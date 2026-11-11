@@ -1,5 +1,8 @@
 /node_modules
 /dist
+/src/generated/
 /data
 .env
+.env.*
+!.env.example
 /.idea
