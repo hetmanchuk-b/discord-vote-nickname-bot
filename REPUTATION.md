@@ -29,6 +29,12 @@ Attendance bonuses, absence penalties, persistent pause history, bounded balance
 
 Verification: all **217 tests** passed with database integration enabled against a disposable local Prisma PostgreSQL-compatible database. This includes a legacy-schema upgrade fixture, day-3/10/17 rewards, day-8 penalties, pause history/zero-duration boundaries, downtime freezes, DST, clamping, transactional rollback/concurrent retries, deletion, and bonus reports with negative balances. Type-check, lint, schema validation, build, fresh migration deployment, and schema-diff checks passed. The hosted attendance migration was subsequently applied with approval; no live Discord test or bot deployment was performed.
 
+## Warning history rollout
+
+Warning descriptions now retain reason changes, hourly snapshots, and recoveries in chronological order, with dates and `HH:mm` timestamps in `Europe/Kyiv` (DST-aware). A maximum of 100 safe-category entries is persisted; the description includes the newest whole entries that fit Discord's 4,096-character limit and indicates when older entries are hidden. Acknowledgement retries reuse the same entry; restart and outage recovery preserve/merge history by immutable event IDs. Hourly throttling and no-ping delivery remain unchanged. Raw exception messages or connection details are not stored in history or rendered.
+
+Migration `20261111060000_warning_history` was applied to the hosted database with explicit approval; subsequent status verification confirmed all seven migrations are up to date. It adds the JSON history column; existing rows default to an empty array, then adopt their latest known state on first use. Earlier pre-upgrade edits cannot be reconstructed. Do not deploy this build before the migration. All **224 tests** passed with local database integration enabled; type-check, lint, build, schema validation, fresh local migration deployment, and schema-diff checks passed. The hosted migration was subsequently applied with approval. No live Discord messages were changed and no bot deployment was performed.
+
 ## Purpose
 
 Reward members for time connected to server voice channels. The bot tracks connection time, not speech or audio. It does not need to join a voice channel; it must be online and receiving voice-state events.

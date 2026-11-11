@@ -4,7 +4,8 @@ const { structuredClone } = globalThis;
 const { setImmediate } = require('node:timers/promises');
 const { MessageFlags } = require('discord.js');
 const { ReportPublisher } = require('../dist/reputation/report-publisher.js');
-const { OperationalWarnings } = require('../dist/reputation/operational-warnings.js');
+const { OperationalWarnings, renderWarning } = require('../dist/reputation/operational-warnings.js');
+const { warningHistory, WARNING_HISTORY_LIMIT } = require('../dist/reputation/warning-store.js');
 const { renderReport, renderPlaceholder } = require('../dist/reputation/report-render.js');
 const { createReportNavigation } = require('../dist/reputation/reporting.js');
 const { handleReputationPage } = require('../dist/buttons/reputation-report.js');
@@ -273,6 +274,12 @@ test('warnings reuse one message: immediate alert, hourly updates, final recover
   assert.equal(f.updates.length, 3);
   assert.equal(f.updates[2].message, f.updates[0].message);
   assert.match(f.updates[2].payload.embeds[0].toJSON().title, /відновлено/);
+  const description = f.updates[2].payload.embeds[0].toJSON().description;
+  for (const time of ['00:00','00:10','01:00','01:01','01:02']) assert.ok(description.includes(time));
+  assert.match(description, /Відстеження голосових каналів/);
+  assert.match(description, /Щоденне зарахування/);
+  assert.match(description, /✅ Усі відомі проблеми усунено/);
+  assert.equal(f.saved().history.length, 5);
   assert.deepEqual(f.updates[0].payload.allowedMentions, { parse: [] });
   await f.warnings.stop();
 });
@@ -286,6 +293,9 @@ test('warning restart restores the saved message and hourly throttle', async t =
   f.at(60); await f.warnings.start();
   assert.equal(f.updates.length, 1);
   assert.equal(f.updates[0].message, 'existing');
+  assert.equal(f.saved().history.length, 2); // Latest legacy state plus the new hourly update.
+  assert.match(f.updates[0].payload.embeds[0].toJSON().description, /00:00/);
+  assert.match(f.updates[0].payload.embeds[0].toJSON().description, /01:00/);
   await f.warnings.stop();
 });
 
@@ -344,5 +354,98 @@ test('active warnings follow a changed configured channel without repeated pings
   await f.warnings.channelChanged('new-channel');
   assert.equal(f.updates.at(-1).channel, 'new-channel');
   assert.notEqual(f.updates[0].message, f.updates[1].message);
+  assert.match(f.updates[1].payload.embeds[0].toJSON().description, /00:00/);
   await f.warnings.stop();
+});
+
+test('warning restart preserves earlier incidents while appending a new hourly timestamp', async t => {
+  const history = [
+    { id:'old-incident', at:new Date(origin-60*60000).toISOString(), reasons:['reports'] },
+    { id:'current-incident', at:new Date(origin).toISOString(), reasons:['tracking'] },
+  ];
+  const f = warningFixture(t,{ channelId:'channel',messageId:'existing',reasons:['tracking'],history,
+    activeSince:new Date(origin),lastSeenAt:new Date(origin),lastEditedAt:new Date(origin),
+    displayedActive:true,deliveryUncertain:false });
+  f.at(60); await f.warnings.start();
+  assert.equal(f.saved().history.length,3);
+  assert.equal(f.saved().history[0].id,'old-incident');
+  const description = f.updates[0].payload.embeds[0].toJSON().description;
+  assert.match(description,/23:00/);
+  assert.match(description,/00:00/);
+  assert.match(description,/01:00/);
+  assert.match(description,/Доставка щоденних звітів/);
+  await f.warnings.stop();
+});
+
+test('uncertain delivery retries reuse the history entry rather than appending duplicates', async t => {
+  const f = warningFixture(t);
+  await f.warnings.start();
+  f.loseAck(); await f.warnings.setIssue('tracking',true);
+  const firstId = f.saved().history[0].id;
+  f.at(5); await f.warnings.start();
+  assert.equal(f.updates.length,2);
+  assert.equal(f.saved().history.length,1);
+  assert.equal(f.saved().history[0].id,firstId);
+  f.at(6); await f.warnings.setIssue('tracking',false);
+  assert.equal(f.saved().history.length,2);
+  assert.match(f.updates.at(-1).payload.embeds[0].toJSON().description,/00:06/);
+  await f.warnings.stop();
+});
+
+test('recovering database access merges old persisted history with new locally delivered incidents', async t => {
+  const history = [{id:'persisted-before-outage',at:new Date(origin-60*60000).toISOString(),reasons:['reports']}];
+  const f = warningFixture(t,{channelId:'channel',messageId:'old',reasons:['reports'],history,
+    activeSince:new Date(origin-60*60000),lastSeenAt:new Date(origin-60*60000),
+    lastEditedAt:new Date(origin-60*60000),displayedActive:true,deliveryUncertain:false});
+  f.loadDown(true);
+  await f.warnings.channelChanged('channel');
+  await f.warnings.setIssue('tracking',true);
+  const localMessage = f.updates[0].message;
+  f.loadDown(false); f.at(5); await f.warnings.start();
+  assert.equal(f.saved().messageId,localMessage);
+  assert.equal(f.saved().history.length,2);
+  assert.equal(f.saved().history[0].id,'persisted-before-outage');
+  assert.deepEqual(f.saved().history[1].reasons,['tracking']);
+  await f.warnings.stop();
+});
+
+test('history retains at most 100 events and Discord shows whole newest entries within 4096 characters', () => {
+  const history = Array.from({length:120},(_,index)=>({
+    id:`entry-${index}`,at:new Date(origin+index*60000).toISOString(),reasons:['reports','settlement','tracking'],
+  }));
+  const normalized = warningHistory(history);
+  assert.equal(normalized.length,WARNING_HISTORY_LIMIT);
+  assert.equal(normalized[0].id,'entry-20');
+  const payload = renderWarning('guild',{reasons:['tracking'],history},new Date(origin));
+  const description = payload.embeds[0].toJSON().description;
+  assert.ok(description.length<=4096);
+  assert.match(description,/Показано останні події/);
+  assert.match(description,/01:59/);
+  assert.doesNotMatch(description,/00:00/);
+  assert.match(description.split('\n').at(-1),/^\*\*.*01:59\*\* — ⚠️/);
+  assert.equal(history.length,120); // Rendering must not mutate the caller's data.
+  assert.deepEqual(payload.allowedMentions,{parse:[]});
+});
+
+test('history rejects unknown reasons, malformed dates, and duplicate IDs without exposing raw strings', () => {
+  const history = [
+    {id:'safe',at:new Date(origin).toISOString(),reasons:['tracking']},
+    {id:'safe',at:new Date(origin).toISOString(),reasons:[]},
+    {id:'bad-reason',at:new Date(origin).toISOString(),reasons:['postgres://private-secret']},
+    {id:'bad-date',at:'private-secret',reasons:['tracking']},
+    null,42,
+  ];
+  assert.equal(warningHistory(history).length,1);
+  const description = renderWarning('guild',{reasons:[],history},new Date(origin)).embeds[0].toJSON().description;
+  assert.doesNotMatch(description,/private-secret/);
+  assert.match(description,/Відстеження голосових каналів/);
+});
+
+test('warning timestamps use Kyiv DST offsets, not the machine timezone', () => {
+  for (const [at,expected] of [['2026-01-01T12:34:00.000Z','14:34'],['2026-07-01T12:34:00.000Z','15:34']]) {
+    const description = renderWarning('guild',{reasons:['tracking'],history:[{id:'event',at,reasons:['tracking']}]},new Date(at))
+      .embeds[0].toJSON().description;
+    assert.ok(description.includes(expected));
+    assert.match(description,/Europe\/Kyiv/);
+  }
 });

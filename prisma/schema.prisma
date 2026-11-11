@@ -199,6 +199,7 @@ model ReputationWarning {
   channelId         String?   @map("channel_id") @db.VarChar(20)
   messageId         String?   @map("message_id") @db.VarChar(20)
   reasons           String[]  @default([])
+  history           Json      @default("[]")
   activeSince       DateTime? @map("active_since") @db.Timestamptz(3)
   lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamptz(3)
   lastEditedAt      DateTime? @map("last_edited_at") @db.Timestamptz(3)

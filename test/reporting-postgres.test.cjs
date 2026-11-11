@@ -201,15 +201,28 @@ test('warning message identity, issue groups, and hourly timestamp persist indep
   await fixture(async f => {
     const warnings = createWarningStore(() => f.database);
     const at = new Date();
+    const history = [{ id: 'first-warning', at: at.toISOString(), reasons: ['reports', 'tracking'] }];
     await warnings.save(f.guildId, {
-      channelId, messageId, reasons: ['tracking', 'reports'], activeSince: at,
+      channelId, messageId, reasons: ['tracking', 'reports'], history, activeSince: at,
       lastSeenAt: at, lastEditedAt: at, displayedActive: true,
     });
     const reloaded = await createWarningStore(() => f.database).load(f.guildId);
     assert.equal(reloaded.destination, channelId);
     assert.equal(reloaded.state.messageId, messageId);
     assert.equal(reloaded.state.lastEditedAt.getTime(), at.getTime());
+    assert.deepEqual(reloaded.state.history, history);
     await f.tracking.deleteMemberData(f.guildId, users[0], at);
     assert.deepEqual((await warnings.load(f.guildId)).state.reasons, ['tracking', 'reports']);
+    assert.deepEqual((await warnings.load(f.guildId)).state.history, history);
+  });
+});
+
+test('legacy warning rows default to empty history and database rejects non-array history',options,async()=>{
+  await fixture(async f=>{
+    await f.database.reputationWarning.create({data:{guildId:f.guildId,lastSeenAt:new Date(),reasons:['tracking']}});
+    const loaded = await createWarningStore(()=>f.database).load(f.guildId);
+    assert.deepEqual(loaded.state.history,[]);
+    await assert.rejects(f.database.reputationWarning.update({where:{guildId:f.guildId},data:{history:{invalid:true}}}));
+    assert.deepEqual((await f.database.reputationWarning.findUniqueOrThrow({where:{guildId:f.guildId}})).history,[]);
   });
 });

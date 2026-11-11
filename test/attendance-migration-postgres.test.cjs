@@ -20,7 +20,7 @@ test('attendance upgrade seeds enrollment/pauses, clamps only live balances, pre
     await client.query(`CREATE SCHEMA "${schema}"`);
     await client.query(`SET LOCAL search_path TO "${schema}"`);
     const root = path.resolve('prisma/migrations');
-    const directories = (await fs.readdir(root)).filter(name=>/^\d+_/.test(name)).sort();
+    const directories = (await fs.readdir(root)).filter(name=>/^\d+_/.test(name) && name <= '20261111050000_attendance_rewards').sort();
     assert.equal(directories.length,6);
     for (const name of directories.slice(0,5)) await client.query(await fs.readFile(path.join(root,name,'migration.sql'),'utf8'));
     await client.query(`INSERT INTO reputation_guilds(guild_id,updated_at,settled_through) VALUES ('1',now(),'2020-01-02T00:00:00Z');
