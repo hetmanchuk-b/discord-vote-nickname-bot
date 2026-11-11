@@ -2,7 +2,7 @@
 
 ## Current status and safety defaults
 
-The workflow and scripts are implemented. **No real database export, bucket upload, GitHub secret configuration, scheduled run, or production restore has been performed by the agent.** Tests use synthetic archives and a fake storage/tool adapter, plus real AES-GCM encryption/authentication. Live Prisma bucket compatibility and a full PostgreSQL restore still need your approved manual test.
+The owner configured the repository secrets and reported successful manual GitHub check, backup, and independent verify runs. With explicit approval, the agent authenticated the downloaded archive and restored it into a separately configured test database using PostgreSQL 17. Production was not modified. Scheduling and retention remain disabled pending separate opt-in. Automated backup tests still use synthetic archives and a fake storage/tool adapter, plus real AES-GCM encryption/authentication.
 
 - Backups run outside KataBump, independently of the bot.
 - Scheduled jobs are **disabled** until the GitHub variable `BACKUPS_SCHEDULE_ENABLED` is `true`.
@@ -136,6 +136,15 @@ Before turning on schedules, create a completely separate **empty test PostgreSQ
 8. Remove local plaintext after testing and retire the disposable test database when you no longer need it.
 
 Backups are logically removed from temporary storage; this is not a claim of secure physical erasure on disks. Protect the restore machine and its disk encryption.
+
+### Verified manual restore checkpoint
+
+- The target used `RESTORE_DATABASE_URL`, not the bot's source connection. Credentials differed from the source; read-only catalog checks confirmed no application objects before writing. Prisma's extension-owned `ppg.query_stats` view was left untouched. A shared Prisma host/database name alone does not identify the tenant.
+- The encrypted download authenticated successfully. Docker `postgres:17` read its catalog and restored it with `--single-transaction --exit-on-error --no-owner --no-privileges`.
+- The target already had the managed `public` schema. A private reviewed `--use-list` file omitted only its schema-creation and schema-comment entries; all application entries were retained. No `--clean`, schema drop, or ignored SQL errors were used.
+- Verification found all 10 application tables, 19 indexes, 11 foreign keys, 7 check constraints, and 5 completed migrations whose checksums matched this repository.
+- This archive contained no reputation activity or member rows, so populated balances, preferences, and report snapshots were not exercised by this live restore. Repeat a representative restore after tracking has accumulated data; synthetic/integration tests do not replace that check.
+- Temporary plaintext and the private catalog list were removed. The encrypted download and restored test database were retained; retiring the test database is a separate owner action. No production recovery, scheduled run, or retention deletion was performed.
 
 ### Production recovery is a separate supervised procedure
 

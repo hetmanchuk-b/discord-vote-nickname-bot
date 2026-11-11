@@ -93,9 +93,9 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 - `src/generated/` — generated Prisma Client (ignored; included in compiled `dist/`)
 - `test/` — offline tests against the compiled output (no Discord login required)
 
-## Reputation: implementation and rollout
+## Voice reputation
 
-The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stages 1–4 implement storage, voice tracking, daily settlement, and member controls. Stage 5 adds daily reports, durable shared pagination, and operational warnings. **Background tracking, settlement, reports, and warnings remain OFF by default.** Backup tooling and guided deployment are now in place; live backup/restore verification, GitHub secrets/scheduling, slash-command deployment, and activation still require your explicit setup. Setting a channel or enabling a personal preference does not activate the global tracking flag.
+The reputation system includes voice tracking, daily settlement, member controls, daily reports, shared pagination, and operational warnings. Detailed rules are in [`REPUTATION.md`](REPUTATION.md). **Background tracking, settlement, reports, and warnings remain OFF by default.** Backup tooling and guided deployment are in place. Repository secrets, manual backup/verification, and an approved restore into a separate test database have been verified. Scheduling, slash-command deployment, and activation still require explicit setup. Setting a channel or enabling a personal preference does not activate the global tracking flag.
 
 Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime database access uses a lazy pool of at most 3 connections with finite query/connection timeouts. The bot's existing commands and slash-command deployment do not require a database connection.
 
@@ -104,7 +104,7 @@ Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — KataBump upload/startup, permissions, command registration, smoke checks, and deliberate activation.
 - [`BACKUPS.md`](BACKUPS.md) — beginner-friendly GitHub Actions setup, private secrets, encrypted Prisma bucket backups, verification, restore testing, and optional retention.
 
-The backup workflow is manual-first: scheduled runs and deletion of old backups are disabled by default. It uses Node built-ins, PostgreSQL 17 tools, and AWS CLI rather than adding runtime npm packages. No real export/upload or production restore has been performed. Keep bucket credentials and backup encryption keys off the bot host.
+The backup workflow is manual-first: scheduled runs and deletion of old backups are disabled by default. It uses Node built-ins, PostgreSQL 17 tools, and AWS CLI rather than adding runtime npm packages. A real manual encrypted backup and a separate test-database restore succeeded; the archive contained schema/migration history but no reputation activity yet. No production restore was performed. Keep bucket credentials and backup encryption keys off the bot host.
 
 ```bash
 npm run backup:check   # Offline configuration validation, no database/bucket requests
@@ -143,7 +143,7 @@ Build locally, upload the **entire `dist/` directory** (including generated clie
 
 Production installation can use `npm ci --omit=dev`. Migrations require the development CLI and the `prisma/` directory plus `prisma.config.ts`; run them separately from a trusted development/deployment machine, not implicitly on each bot restart. Do not upload `node_modules` from Windows to the Linux host.
 
-### Voice tracker (stage 2, disabled by default)
+### Voice tracker (disabled by default)
 
 Keep `REPUTATION_TRACKING_ENABLED=false` until deployment checks are complete and you explicitly choose to activate it. This flag gates **tracking, settlement, report delivery, and operational warnings**; historical pagination and member commands remain available with a healthy database. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
 
@@ -161,7 +161,7 @@ The tracker:
 
 Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestamp. Status changes feed the reusable warning message described below and are logged without driver credentials.
 
-### Daily settlement (stage 3, gated with tracking)
+### Daily settlement (gated with tracking)
 
 - Wakes at **00:00 Europe/Kyiv**, accounting for 23/25-hour DST days. Startup catch-up processes missed days in chronological order from the first tracking day—not before activation.
 - Flushes the tracker before closing eligible days, clips midnight-spanning intervals, sums all visits, and awards `floor(eligible milliseconds / 600000)` per member/day. Remainders never carry forward.
@@ -174,7 +174,7 @@ Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestam
 
 Migration `20261111020000_daily_settlement` must be explicitly approved/applied before deploying this version against an existing database. It adds settlement tables and a watermark; it does not activate tracking or issue payouts by itself.
 
-### Member commands (stage 4)
+### Member commands
 
 Apply migration `20261111030000_member_controls` to the intended database before deploying this version, then run `npm run commands` to register the new commands. Migration and Discord command deployment are explicit operations, not automatic startup work.
 
@@ -195,7 +195,7 @@ Deletion removes the live balance, all member voice intervals, and member/day re
 
 Deletion and tracking-preference changes serialize with the active tracker. Database writes also hold the same server-row lock as settlement. The `tracking_since` cutoff prevents queued pre-erasure/resume work from restoring old time. A deletion failure with an uncertain commit outcome asks the caller to verify/retry instead of claiming success. `/reputation-on` after deletion starts at zero. Historical Discord reports are not edited by deletion; their saved snapshots survive. If a report containing the member is in the middle of an unconfirmed Discord delivery, deletion returns a retry message without erasing data or pausing healthy tracking. Restore access to the original report channel if reconciliation is blocked by permissions.
 
-### Reports and operational warnings (stage 5)
+### Reports and operational warnings
 
 Review/apply `20261111040000_reports_and_warnings` before deploying this version. It adds report snapshots, publication state, and warning metadata; applying it does not send messages or activate tracking.
 
