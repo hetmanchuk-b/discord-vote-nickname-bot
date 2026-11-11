@@ -30,6 +30,7 @@ export function eligibleVoiceUserIds(guild: Guild): string[] {
 }
 
 export interface VoiceTrackingRuntime {
+  guildId?: string;
   tracker?: VoiceTracker;
   stop(): Promise<void>;
 }
@@ -134,6 +135,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
   if (client.isReady()) resume();
 
   return {
+    guildId,
     tracker,
     async stop() {
       if (stopped) return;

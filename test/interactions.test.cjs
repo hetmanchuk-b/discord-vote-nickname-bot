@@ -83,6 +83,16 @@ test('poll creation requires at least five finalists and keeps the session', asy
   assert.equal(interaction.client.shuffleSessions.get('message'), state);
 });
 
+test('button failures are caught without exposing raw secrets or crashing the listener', async t => {
+  const log = t.mock.method(console, 'error', () => {});
+  const state = { availableVariants: [], selectedVariants: [], threadId: 'thread' };
+  const interaction = button('shuffle:remove', state);
+  interaction.update = async () => { throw new Error('private-webhook-secret'); };
+  await interactionCreate.execute(interaction);
+  assert.equal(interaction.replies[0].flags, MessageFlags.Ephemeral);
+  assert.equal(JSON.stringify(log.mock.calls.map(call => call.arguments)).includes('private-webhook-secret'), false);
+});
+
 test('command cooldown prevents execution after dispatch', async () => {
   let executed = false;
   const replies = [];

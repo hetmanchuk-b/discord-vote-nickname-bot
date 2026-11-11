@@ -93,9 +93,9 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 - `src/generated/` — generated Prisma Client (ignored; included in compiled `dist/`)
 - `test/` — offline tests against the compiled output (no Discord login required)
 
-## Reputation: stages 1–3
+## Reputation: stages 1–4
 
-The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stage 1 adds storage and `/set-reputation-report id:<channel ID>`. Stage 2 adds an opt-in voice tracker. Stage 3 adds daily settlement. **Tracking and settlement remain OFF by default; member commands, reports, and backups are not implemented yet.** Setting a channel does not activate tracking or payouts.
+The agreed rules and implementation status are in [`REPUTATION.md`](REPUTATION.md). Stage 1 adds storage and `/set-reputation-report id:<channel ID>`. Stage 2 adds an opt-in voice tracker. Stage 3 adds daily settlement. Stage 4 adds member commands and confirmed self-service deletion. **Tracking and settlement remain OFF by default; reports, public operational warnings, and backups are not implemented yet.** Setting a channel or enabling a personal preference does not activate the global tracking flag.
 
 Prisma ORM, Client, and the PostgreSQL adapter are pinned to **7.10.1**. Runtime database access uses a lazy pool of at most 3 connections with finite query/connection timeouts. The bot's existing commands and slash-command deployment do not require a database connection.
 
@@ -131,14 +131,14 @@ Production installation can use `npm ci --omit=dev`. Migrations require the deve
 
 ### Voice tracker (stage 2, disabled by default)
 
-Keep `REPUTATION_TRACKING_ENABLED=false` while user controls and reports are unfinished. This flag gates **both tracking and settlement**. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
+Keep `REPUTATION_TRACKING_ENABLED=false` while reports and public operational warnings are unfinished. This flag gates **both tracking and settlement**. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
 
 The tracker:
 
 - Counts humans in regular voice channels, including solo, muted, and deafened members; excludes bots, Stage channels, and the configured AFK channel.
 - Captures joins/leaves and eligibility changes, then serializes writes. Normal-channel moves and mute/deafen changes do not cause extra database writes.
 - Saves unrounded UTC intervals at five-minute checkpoints and relevant transitions. Kyiv-day splitting and rounding happen at settlement, not on each visit.
-- Supports internal pause/resume with persistent `is_tracking`; Discord member commands arrive later. Pausing preserves earlier recorded time.
+- Supports `/reputation-on` and `/reputation-off` with persistent `is_tracking`. Pausing preserves earlier recorded time; resuming never backfills a pause.
 - Records coverage even when voice channels are empty, allowing later reports to distinguish no activity from missing observations.
 - Starts a fresh baseline after restart, database failure, or gateway loss. Unsaved tails and offline gaps are not backfilled. A database write with an uncertain acknowledgement is not blindly retried.
 - Drops a tail when more than six minutes pass without a successful checkpoint (five-minute interval plus one-minute scheduling grace), rather than awarding an unobserved process suspension.
@@ -160,11 +160,32 @@ Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestam
 
 Migration `20261111020000_daily_settlement` must be explicitly approved/applied before deploying this version against an existing database. It adds settlement tables and a watermark; it does not activate tracking or issue payouts by itself.
 
+### Member commands (stage 4)
+
+Apply migration `20261111030000_member_controls` to the intended database before deploying this version, then run `npm run commands` to register the new commands. Migration and Discord command deployment are explicit operations, not automatic startup work.
+
+| Command | Behavior | Visibility |
+| --- | --- | --- |
+| `/reputation [user]` | Settled balance; defaults to the caller | Public |
+| `/voice-today [user]` | Verified time, pending whole points, tracking status, and incomplete-data warnings for the current Kyiv day | Public |
+| `/reputation-off` | Pause only the caller; preserve earlier time and balance | Ephemeral |
+| `/reputation-on` | Resume only the caller without retroactive pause credit | Ephemeral |
+| `/reputation-rules` | Earning, settlement, channel, downtime, and deletion rules | Ephemeral |
+| `/reputation-delete` | Caller-only Delete/Cancel confirmation, expiring after 60 seconds | Ephemeral |
+
+All commands are server-only. User options use Discord's member/user picker, not ambiguous free-text username matching. Bots are not eligible. Public statistics do not ping the selected user. Reading statistics for an unknown member does not create a database record.
+
+`/voice-today` requests an on-demand checkpoint when a tracker exists, so ongoing verified time is included. These reads may produce additional checkpoint writes beyond the five-minute schedule. They do not award points. When global tracking is disabled/unavailable, commands show that clearly; personal preferences and deletion remain usable with a healthy database. Database failures produce an error, never a fabricated zero balance.
+
+Deletion removes the live balance, all member voice intervals, and member/day results (including entries not yet published). It retains the disabled identity and a monotonic eligibility cutoff, untouched day ledgers/anonymous accounting summaries, previously published report history, and existing backups. Nothing changes until the owner confirms. Expired, cancelled, repeated, foreign-user/server, or post-restart confirmation clicks cannot authorize deletion.
+
+Deletion and tracking-preference changes serialize with the active tracker. Database writes also hold the same server-row lock as settlement. The `tracking_since` cutoff prevents queued pre-erasure/resume work from restoring old time. A deletion failure with an uncertain commit outcome asks the caller to verify/retry instead of claiming success. `/reputation-on` after deletion starts at zero. Historical Discord reports are not edited; their dedicated saved snapshots arrive in the reporting stage.
+
 ### Database tests
 
 `npm test` runs offline tests and skips PostgreSQL integration tests by default. It never falls back to `DATABASE_URL` for integration testing. Test files run sequentially to bound connection pressure and support Prisma's local development database; concurrency protection is explicitly tested inside a transaction test.
 
-To test real persistence, provision a **disposable PostgreSQL test database**, apply the checked-in migration to it, and set `REPUTATION_TEST_DATABASE_URL` to that database before running tests. When applying test migrations, explicitly point both `DATABASE_URL` and `DIRECT_DATABASE_URL` at the test database so a local `.env` cannot accidentally select the hosted database. The tests create uniquely named fixture records and remove them afterward. Apply **all** checked-in migrations to the disposable database; opt-in tests cover settings persistence, tracking preferences, interval transactions, rollback, stale-run fencing, DST settlement, midnight splitting, concurrent payouts, immutable balance snapshots, and late checkpoint clipping. Never point these tests at production.
+To test real persistence, provision a **disposable PostgreSQL test database**, apply the checked-in migration to it, and set `REPUTATION_TEST_DATABASE_URL` to that database before running tests. When applying test migrations, explicitly point both `DATABASE_URL` and `DIRECT_DATABASE_URL` at the test database so a local `.env` cannot accidentally select the hosted database. The tests create uniquely named fixture records and remove them afterward. Apply **all** checked-in migrations to the disposable database; opt-in tests cover settings persistence, tracking preferences, interval transactions, rollback, stale-run fencing, DST settlement, midnight splitting, concurrent payouts, immutable balance snapshots, late checkpoint clipping, member statistics, pause cutoffs, deletion rollback, and concurrent deletion/settlement. Never point these tests at production.
 
 ### Adding buttons
 

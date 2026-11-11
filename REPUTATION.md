@@ -1,18 +1,20 @@
 # Voice Reputation — Planning Specification
 
-Status: **stages 1–3 implemented: storage, voice tracking, and daily settlement**. Tracking and settlement remain behind an **OFF-by-default flag**. Member commands, report delivery, and backups are still future work.
+Status: **stages 1–4 implemented: storage, voice tracking, daily settlement, and member commands/deletion**. Tracking and settlement remain behind an **OFF-by-default flag**. Report delivery, public warnings, and backups are still future work.
 
 ## Implementation progress
 
 - Stage 1: Prisma ORM 7.10.1, generated CommonJS-compatible client, explicit `.env` loading, lazy PostgreSQL pool, initial guild/member schema and migration, and persistent `/set-reputation-report` settings command.
 - Stage 2: single-server Discord voice-state integration, serialized five-minute checkpoints, unrounded verified voice intervals, tracking-run coverage, internal persistent pause/resume, and conservative restart/gateway/database recovery.
 - Stage 3: DST-safe Kyiv-day boundaries, transactional whole-point payouts, immutable post-payout balance values in daily results, coverage summaries, duplicate-payout prevention, and startup/midnight catch-up with bounded retries.
+- Stage 4: public balance/today commands, ephemeral rules and pause/resume commands, caller-bound 60-second deletion confirmation, and transactional live-data erasure. A monotonic member eligibility cutoff protects against stale work after deletion/re-enrollment.
+- With the user's approval, stage-4 migration `20261111030000_member_controls` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all four migrations are up to date. All **124 tests** passed against a disposable local database with integration tests enabled; schema validation, type-check, lint, and build also passed. Discord command deployment has not been run.
 - The initial schema stores server-scoped report destinations and member identities, integer balances, and `is_tracking` (default true). Stage 2 adds tracking runs and voice intervals. Stage 3 adds unique day ledgers, member/day results, and a settled-through watermark. Immutable published report snapshots remain future work.
-- With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until member commands and reports are ready.
+- With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until reports and public warnings are ready.
 - Database schema changes are explicit deployment steps; no migration is run automatically at startup. With the user's approval, `20261111000000_reputation_foundation` was applied to the configured Prisma database using `prisma migrate deploy`; subsequent `prisma migrate status` confirmed the schema is up to date.
 - With the user's approval, stage-3 migration `20261111020000_daily_settlement` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all three migrations are up to date. Applying this migration does not activate tracking or issue payouts by itself.
 - Stage-3 verification: all **85 tests** passed with integration tests enabled against a disposable local Prisma PostgreSQL-compatible database, including SQL rollback, concurrent payouts, DST days, midnight splitting, and stale checkpoint clipping. Schema validation, type-check, lint, and build also passed. The local database process was stopped afterward.
-- Next stages: member commands/deletion; reports/warnings; backups/deployment.
+- Next stages: reports/warnings; backups/deployment.
 - Obtain user confirmation before applying further migrations to the hosted database. See `README.md` for stage-1 setup and testing instructions.
 
 ## Purpose
@@ -86,14 +88,14 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Members can pause and resume their own voice-reputation tracking using these commands.
 - Tracking is **enabled by default**.
 - Public `/voice-today` responses display **"Tracking paused"** when applicable.
-- Other behavior is pending confirmation. Recommended semantics:
+- Implemented semantics:
   - `/reputation-off` records eligible time up to the pause, then stops accumulating it.
   - Pausing does not delete previously recorded time, pending awards, or settled reputation; earlier verified time still settles normally.
   - `/reputation-on` resumes from the command time if the member is already in an eligible channel, or from their next eligible join otherwise.
   - Paused periods are not credited retroactively.
   - Persist the preference across reconnects, restarts, and server leave/rejoin.
   - Commands affect only the caller and reply ephemerally; repeated calls are harmless and report the existing state.
-- A paused member's earlier daily earnings remain reportable under the existing positive-earner rule unless a separate visibility rule is approved. Confirm this distinction explicitly.
+- A paused member's earlier daily earnings remain eligible for settlement and reporting. Pausing is not deletion.
 
 ### `/reputation-delete`
 
@@ -104,9 +106,10 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Remove/reset the live balance, pending earnings, voice records, and member-level daily reward data, while keeping the minimum user identity and `is_tracking = false`. Do not remove frozen historical report snapshots.
 - Tracking remains disabled until the caller explicitly uses `/reputation-on`. The user proposed `is_tracking` on the user table; this is suitable. Prisma may expose it as `isTracking` while mapping the database column to `is_tracking`.
 - Do not update already published historical reports or their saved pagination data. Historical daily points, balance snapshots, and aggregates remain unchanged.
-- Do not include deleted live data in future reports, including reports not yet published. Define how this interacts with queued reports and later re-enrollment so deleted old earnings never reappear.
+- Do not include deleted live data in future reports, including reports not yet published. Stage 4 removes all live member/day rows used as pending report entries. The later publisher must use those live rows for unpublished reports, and a separate frozen snapshot for published history, never reconstruct erased entries from old accounting summaries.
 - Do not clear or rewrite existing backups in response to deletion. Routine backup retention is a separate policy. Restoring an old backup can restore deleted data or an outdated tracking preference; define and disclose restore handling rather than promising automatic deletion replay.
-- Coordinate deletion with ongoing tracking and settlement so stale work cannot recreate deleted records or award deleted earnings.
+- Stage 4 coordinates deletion with the tracker's serial queue and the same server-row database lock used by settlement. Erasure, the zero balance, and the disabled flag commit together; failure rolls everything back. Stale checkpoints are clipped to the monotonic `tracking_since` cutoff after re-enrollment, and day ledgers remain to prevent duplicate payouts.
+- The retained record contains the server/user IDs, zero balance, disabled flag, eligibility cutoff, and reset bookkeeping timestamps, not the member's previous activity history.
 - The confirmation must explain the retained identity/disabled flag, historical reports, and backups; do not describe this as erasing every copy of the user's data.
 - After deletion, `/reputation-on` resumes from **zero reputation and zero accumulated time**, with no retroactive credit.
 
@@ -221,6 +224,6 @@ Source: https://www.prisma.io/pricing
 5. Verify provider metering and finalize a backup/export policy. Stage 1 selects Prisma 7.10.1 with the PostgreSQL adapter and explicit versioned migration deployment.
 6. Decide raw session/checkpoint retention versus long-term daily summary retention.
 7. Decide how Discord warnings are handled if the configured channel is inaccessible. Stage 2 implements conservative checkpoint/reconnect reconciliation and bounded retries.
-8. Confirm remaining pause/resume semantics: persistence, treatment of earlier pending awards, and ephemeral command replies. Defaults and public paused-status display are confirmed.
+8. Finalize the report publisher's handling of deleted pending entries versus retained published snapshots. Stage 4 removes the live member/day rows; the publisher must not recreate them.
 9. Confirm the external backup scheduler, export retention/encryption, access secrets, and failure monitoring. The user requests step-by-step guidance for GitHub Actions; no workflow has been created yet.
-10. Specify exclusion from queued unpublished reports and backup restore handling. Deletion confirmation expires after 60 seconds, and re-enrollment starts from zero; both are confirmed.
+10. Specify backup restore handling so an old backup does not silently undo a user's deletion or opt-out. Existing backups are not rewritten on deletion.

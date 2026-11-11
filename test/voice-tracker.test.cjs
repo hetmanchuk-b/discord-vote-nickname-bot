@@ -56,6 +56,13 @@ function fixture({ paused = [] } = {}) {
       if (unavailable) throw new Error('database unavailable');
       preferences.set(userId, enabled);
     },
+    async deleteMemberData(_guildId, userId) {
+      if (unavailable) throw new Error('database unavailable');
+      for (let index = intervals.length - 1; index >= 0; index--) {
+        if (intervals[index].userId === userId) intervals.splice(index, 1);
+      }
+      preferences.set(userId, false);
+    },
   };
   const options = {
     guildId: 'guild', store,
@@ -260,6 +267,32 @@ test('concurrent observations retain their captured join and leave timestamps', 
   f.at(3); f.present(); const left = f.tracker.observe();
   await Promise.all([joined, left]);
   assert.equal(f.total('john'), 2);
+});
+
+test('deletion erases one member, preserves others, and queued work cannot restore erased time', async () => {
+  const f = fixture();
+  f.present('john', 'nathan'); await f.tracker.start();
+  f.at(5); await f.tracker.checkpoint();
+  f.at(7); const deleted = f.tracker.deleteData('john');
+  f.at(8); const queued = f.tracker.checkpoint();
+  await Promise.all([deleted, queued]);
+  assert.equal(f.total('john'), 0);
+  assert.equal(f.total('nathan'), 8);
+  assert.equal(f.preferences.get('john'), false);
+  f.at(10); await f.tracker.setTracking('john', true);
+  f.at(15); await f.tracker.checkpoint();
+  assert.equal(f.total('john'), 5);
+  assert.equal(f.total('nathan'), 15);
+});
+
+test('deletion failures do not claim success and force persisted-state recovery', async () => {
+  const f = fixture();
+  f.present('john'); await f.tracker.start();
+  f.at(5); await f.tracker.checkpoint();
+  f.outage(); f.at(6);
+  await assert.rejects(f.tracker.deleteData('john'), /Could not confirm deletion/);
+  assert.equal(f.total('john'), 5);
+  assert.equal(f.tracker.status, 'unavailable');
 });
 
 test('intervals retain millisecond precision and may span Kyiv midnight for later settlement', async () => {

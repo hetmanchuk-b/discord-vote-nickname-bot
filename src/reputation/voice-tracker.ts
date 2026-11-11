@@ -89,13 +89,32 @@ export class VoiceTracker {
         }
       } else {
         try {
-          await this.options.store.setTracking(this.options.guildId, change);
+          await this.options.store.setTracking(this.options.guildId, change, observation.at);
         } catch {
           throw new Error('Could not persist the tracking preference.');
         }
       }
       if (enabled) this.paused.delete(userId);
       else this.paused.add(userId);
+    });
+  }
+
+  deleteData(userId: string): Promise<void> {
+    const observation = this.capture();
+    return this.enqueue(async () => {
+      // Flush everyone first so deleting one member does not discard others' tails.
+      if (!this.suspended && !this.leaseLost && this.runId) await this.process(observation, true);
+      this.paused.add(userId);
+      const now = this.now();
+      const at = this.cursor && this.cursor > now ? this.cursor : now;
+      try {
+        await this.options.store.deleteMemberData(this.options.guildId, userId, at);
+      } catch (error) {
+        // Unknown commit outcome: discard caches and reload persisted opt-outs on recovery.
+        this.failed(error);
+        // eslint-disable-next-line preserve-caught-error
+        throw new Error('Could not confirm deletion of reputation data.');
+      }
     });
   }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getReputationDatabase } from './database.js';
+import { saveTrackingPreference } from './tracking-preference.js';
 
 export class TrackingLeaseLostError extends Error {
   constructor() { super('Another tracking run owns this server.'); }
@@ -24,7 +25,8 @@ export interface TrackingStore {
   openRun(guildId: string, at: Date): Promise<{ runId: string; pausedUserIds: string[] }>;
   checkpoint(checkpoint: TrackingCheckpoint): Promise<void>;
   closeRun(guildId: string, runId: string, at: Date, reason: string): Promise<void>;
-  setTracking(guildId: string, change: TrackingChange): Promise<void>;
+  setTracking(guildId: string, change: TrackingChange, at: Date): Promise<void>;
+  deleteMemberData(guildId: string, userId: string, at: Date): Promise<void>;
 }
 
 const transactionOptions = { maxWait: 5_000, timeout: 15_000 };
@@ -84,22 +86,16 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
           });
           // Recheck persisted opt-outs: stale cached preferences must not earn credit.
           const enabled = await tx.reputationMember.findMany({
-            where: { guildId, userId: { in: ids }, isTracking: true }, select: { userId: true },
+            where: { guildId, userId: { in: ids }, isTracking: true }, select: { userId: true, trackingSince: true },
           });
-          if (enabled.length) {
-            await tx.reputationVoiceInterval.createMany({
-              data: enabled.map(({ userId }) => ({ guildId, userId, runId, startedAt: effectiveFrom, endedAt: to })),
-            });
-          }
+          const intervals = enabled.map(({ userId, trackingSince }) => ({
+            guildId, userId, runId, endedAt: to,
+            startedAt: trackingSince && trackingSince > effectiveFrom ? trackingSince : effectiveFrom,
+          })).filter(interval => interval.startedAt < to);
+          if (intervals.length) await tx.reputationVoiceInterval.createMany({ data: intervals });
         }
         // Save time BEFORE changing the preference: pausing preserves prior time.
-        if (preference) {
-          await tx.reputationMember.upsert({
-            where: { guildId_userId: { guildId, userId: preference.userId } },
-            create: { guildId, userId: preference.userId, isTracking: preference.enabled },
-            update: { isTracking: preference.enabled },
-          });
-        }
+        if (preference) await saveTrackingPreference(tx, guildId, preference, to);
       }, transactionOptions);
     },
 
@@ -116,12 +112,33 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
       }, transactionOptions);
     },
 
-    async setTracking(guildId, { userId, enabled }) {
+    async setTracking(guildId, change, at) {
       await getDatabase().$transaction(async tx => {
-        await tx.reputationGuild.upsert({ where: { guildId }, create: { guildId }, update: {} });
+        await tx.reputationGuild.upsert({
+          where: { guildId }, create: { guildId }, update: { updatedAt: at },
+        });
+        await saveTrackingPreference(tx, guildId, change, at);
+      }, transactionOptions);
+    },
+
+    async deleteMemberData(guildId, userId, at) {
+      await getDatabase().$transaction(async tx => {
+        // Same lock as checkpoints and settlement: delete and payout cannot race.
+        await tx.reputationGuild.upsert({
+          where: { guildId }, create: { guildId }, update: { updatedAt: at },
+        });
+        await tx.reputationVoiceInterval.deleteMany({ where: { guildId, userId } });
+        await tx.reputationDailyAward.deleteMany({ where: { guildId, userId } });
+        const existing = await tx.reputationMember.findUnique({
+          where: { guildId_userId: { guildId, userId } }, select: { trackingSince: true },
+        });
+        const since = existing?.trackingSince && existing.trackingSince > at ? existing.trackingSince : at;
+        // Keep only the disabled identity/cutoff. Day ledgers and published report
+        // snapshots are not member-owned rows; backups are not touched.
         await tx.reputationMember.upsert({
           where: { guildId_userId: { guildId, userId } },
-          create: { guildId, userId, isTracking: enabled }, update: { isTracking: enabled },
+          create: { guildId, userId, isTracking: false, trackingSince: since, createdAt: at, updatedAt: at },
+          update: { balance: 0, isTracking: false, trackingSince: since, createdAt: at, updatedAt: at },
         });
       }, transactionOptions);
     },

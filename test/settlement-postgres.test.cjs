@@ -56,7 +56,7 @@ test('settlement aggregates visits, preserves paused earnings, and snapshots bal
     await checkpoint(at(60), []);
     await checkpoint(at(67), [john]);
     await checkpoint(day.end, []);
-    await f.tracking.setTracking(f.guildId, { userId: john, enabled: false });
+    await f.tracking.setTracking(f.guildId, { userId: john, enabled: false }, day.end);
     await f.database.reputationMember.update({ where: { guildId_userId: { guildId: f.guildId, userId: john } }, data: { balance: 10 } });
     assert.equal(await f.settlement.settleNextClosedDay(f.guildId, new Date(day.end - 1)), null);
     const result = await f.settlement.settleNextClosedDay(f.guildId, day.end);
@@ -71,7 +71,7 @@ test('settlement aggregates visits, preserves paused earnings, and snapshots bal
     assert.equal(member.isTracking, false);
 
     // A later payout changes the live balance, not the previous day's snapshot.
-    await f.tracking.setTracking(f.guildId, { userId: john, enabled: true });
+    await f.tracking.setTracking(f.guildId, { userId: john, enabled: true }, day.end);
     await recordDay(f, '2026-11-12');
     await f.settlement.settleNextClosedDay(f.guildId, kyivDay('2026-11-13').start);
     const frozen = await f.database.reputationDailyAward.findUniqueOrThrow({ where: {

@@ -10,7 +10,7 @@ datasource db {
   provider = "postgresql"
 }
 
-// Stage 3: verified intervals, coverage, and atomic daily settlement.
+// Stage 4: member controls and erasure-safe eligibility cutoffs.
 model ReputationGuild {
   guildId         String   @id @map("guild_id") @db.VarChar(20)
   reportChannelId String?  @map("report_channel_id") @db.VarChar(20)
@@ -28,12 +28,13 @@ model ReputationGuild {
 }
 
 model ReputationMember {
-  guildId    String   @map("guild_id") @db.VarChar(20)
-  userId     String   @map("user_id") @db.VarChar(20)
-  isTracking Boolean  @default(true) @map("is_tracking")
-  balance    Int      @default(0)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  guildId       String    @map("guild_id") @db.VarChar(20)
+  userId        String    @map("user_id") @db.VarChar(20)
+  isTracking    Boolean   @default(true) @map("is_tracking")
+  trackingSince DateTime? @map("tracking_since") @db.Timestamptz(3)
+  balance       Int       @default(0)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   guild     ReputationGuild           @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
   intervals ReputationVoiceInterval[]
