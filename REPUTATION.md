@@ -35,6 +35,12 @@ Warning descriptions now retain reason changes, hourly snapshots, and recoveries
 
 Migration `20261111060000_warning_history` was applied to the hosted database with explicit approval; subsequent status verification confirmed all seven migrations are up to date. It adds the JSON history column; existing rows default to an empty array, then adopt their latest known state on first use. Earlier pre-upgrade edits cannot be reconstructed. Do not deploy this build before the migration. All **224 tests** passed with local database integration enabled; type-check, lint, build, schema validation, fresh local migration deployment, and schema-diff checks passed. The hosted migration was subsequently applied with approval. No live Discord messages were changed and no bot deployment was performed.
 
+## Sanitized diagnostic summaries
+
+Warnings retain their stable `tracking`/`settlement`/`reports` categories and now include allowlisted diagnostic identifiers in the existing history JSON. Public Ukrainian explanations identify known database timeouts, authentication/TLS/schema/connection-limit failures, gateway/guild/observation gaps, tracking ownership loss, missing report configuration, individual missing Discord permissions, and delivery failures. Structured Prisma/PostgreSQL/Discord codes and bounded cause chains are classified; raw exception messages, stacks, SQL, host names, URLs, and credentials are never copied or parsed. Unknown failures receive generic safe summaries. Up to four diagnostic codes per category bound message size.
+
+Cause changes within an active category are recorded even inside the hourly delivery window. Generic health refreshes do not erase a specific known cause. Recovery clears current diagnostics but preserves earlier history. Existing category-only history is still readable; restored current diagnostics are derived from the latest matching history snapshot. No new migration or hosted database change is required. All **252 tests** passed with local database integration, including safe classification, adapter causes, permission checks, cause changes, persistence, hostile/cyclic error objects, and secret-leak protection; build, type-check and lint passed. Discord delivery was mocked; this extension has not been deployed.
+
 ## Purpose
 
 Reward members for time connected to server voice channels. The bot tracks connection time, not speech or audio. It does not need to join a voice channel; it must be online and receiving voice-state events.

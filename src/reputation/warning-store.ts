@@ -1,12 +1,28 @@
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getReputationDatabase } from './database.js';
+import { safeWarningDetails } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 
 export type WarningIssue = 'tracking' | 'settlement' | 'reports';
+export type WarningDetails = Partial<Record<WarningIssue, WarningDetail[]>>;
 export const WARNING_HISTORY_LIMIT = 100;
+
+export function warningDetails(value: unknown, reasons: readonly string[]): WarningDetails {
+  if (!value || typeof value !== 'object') return {};
+  const source = value as Record<string, unknown>;
+  const result: WarningDetails = {};
+  for (const issue of ['tracking', 'settlement', 'reports'] as const) {
+    if (!reasons.includes(issue)) continue;
+    const details = safeWarningDetails(source[issue]);
+    if (details.length) result[issue] = details;
+  }
+  return result;
+}
 export interface WarningHistoryEntry {
   id: string;
   at: string;
   reasons: WarningIssue[];
+  details?: WarningDetails;
 }
 
 // Only controlled categories may reach Discord. Ignore malformed/unknown JSON
@@ -24,7 +40,9 @@ export function warningHistory(value: unknown): WarningHistoryEntry[] {
       reason === 'tracking' || reason === 'settlement' || reason === 'reports');
     if (reasons.length !== entry.reasons.length) continue;
     seen.add(entry.id);
-    entries.push({ id: entry.id, at: new Date(entry.at).toISOString(), reasons: [...new Set(reasons)].sort() });
+    const details = warningDetails(entry.details, reasons);
+    entries.push({ id: entry.id, at: new Date(entry.at).toISOString(), reasons: [...new Set(reasons)].sort(),
+      ...(Object.keys(details).length ? { details } : {}) });
   }
   return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-WARNING_HISTORY_LIMIT);
 }
@@ -33,6 +51,7 @@ export interface WarningState {
   messageId: string | null;
   reasons: string[];
   history: WarningHistoryEntry[];
+  details?: WarningDetails;
   activeSince: Date | null;
   lastSeenAt: Date;
   lastEditedAt: Date | null;
@@ -54,11 +73,21 @@ export function createWarningStore(getDatabase: () => PrismaClient = getReputati
         } } },
       });
       const row = guild?.warning;
-      return { destination: guild?.reportChannelId ?? null, state: row ? { ...row, history: warningHistory(row.history) } : null };
+      const history = warningHistory(row?.history);
+      const latest = history.at(-1);
+      const details = latest && latest.reasons.join(',') === [...(row?.reasons ?? [])].sort().join(',') ? latest.details ?? {} : {};
+      return { destination: guild?.reportChannelId ?? null, state: row ? { ...row, history, details } : null };
     },
     async save(guildId, state) {
       await getDatabase().reputationGuild.upsert({ where: { guildId }, create: { guildId }, update: {} });
-      const data = { ...state, history: warningHistory(state.history).map(entry => ({ ...entry })) };
+      const data = {
+        channelId: state.channelId, messageId: state.messageId, reasons: state.reasons,
+        activeSince: state.activeSince, lastSeenAt: state.lastSeenAt, lastEditedAt: state.lastEditedAt,
+        displayedActive: state.displayedActive, deliveryUncertain: state.deliveryUncertain,
+        history: warningHistory(state.history).map(entry => ({ ...entry,
+          ...(entry.details ? { details: { ...entry.details } } : {}),
+        })),
+      };
       await getDatabase().reputationWarning.upsert({
         where: { guildId }, create: { guildId, ...data }, update: data,
       });

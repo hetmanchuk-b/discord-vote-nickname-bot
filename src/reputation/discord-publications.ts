@@ -4,6 +4,8 @@ import type { Client, TextChannel } from 'discord.js';
 import { renderPlaceholder, reportMarker } from './report-render.js';
 import type { PublicationPayload } from './report-render.js';
 import type { DailyReport } from './report-store.js';
+import { classifyWarning, SafeOperationalError } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 
 export interface PublicationTransport {
   createPlaceholder(channelId: string, report: DailyReport): Promise<string>;
@@ -12,27 +14,39 @@ export interface PublicationTransport {
   warning(channelId: string, messageId: string | null, guildId: string, payload: PublicationPayload): Promise<string>;
 }
 
-class MissingMessage extends Error {}
+class MissingMessage extends SafeOperationalError {
+  constructor() { super(['report-channel-missing']); }
+}
+
+async function safeDiscord<T>(operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch (error) { throw new SafeOperationalError(classifyWarning(error, 'discord')); }
+}
 const missing = (error: unknown) => error instanceof MissingMessage ||
   error instanceof DiscordAPIError && (error.code === 10008 || error.code === 10003);
 
 export function createDiscordPublications(client: Client, guildId: string): PublicationTransport {
   async function channel(id: string): Promise<TextChannel> {
     const guild = client.guilds.cache.get(guildId);
-    if (!guild) throw new Error('Report server unavailable.');
+    if (!guild) throw new SafeOperationalError(['guild-unavailable']);
     const result = await guild.channels.fetch(id);
     if (!result) throw new MissingMessage();
-    if (result.type !== ChannelType.GuildText || result.guildId !== guildId) throw new Error('Invalid report channel.');
+    if (result.type !== ChannelType.GuildText || result.guildId !== guildId) throw new SafeOperationalError(['report-channel-invalid']);
     return result;
   }
   async function requireWritable(destination: TextChannel): Promise<void> {
     const guild = client.guilds.cache.get(guildId);
-    if (!guild) throw new Error('Report server unavailable.');
+    if (!guild) throw new SafeOperationalError(['guild-unavailable']);
     const bot = guild.members.me ?? await guild.members.fetchMe();
-    if (!destination.permissionsFor(bot)?.has([
-      PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages,
-      PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ReadMessageHistory,
-    ])) throw new Error('Report channel permissions are incomplete.');
+    const permissions = destination.permissionsFor(bot);
+    const required: [bigint, WarningDetail][] = [
+      [PermissionFlagsBits.ViewChannel, 'discord-view-channel'],
+      [PermissionFlagsBits.SendMessages, 'discord-send-messages'],
+      [PermissionFlagsBits.EmbedLinks, 'discord-embed-links'],
+      [PermissionFlagsBits.ReadMessageHistory, 'discord-read-history'],
+    ];
+    const missing = required.filter(([permission]) => !permissions?.has(permission)).map(([, detail]) => detail);
+    if (missing.length) throw new SafeOperationalError(missing);
   }
   async function find(destination: TextChannel, marker: string): Promise<string | null> {
     let before: string | undefined;
@@ -48,7 +62,7 @@ export function createDiscordPublications(client: Client, guildId: string): Publ
     }
     return null;
   }
-  return {
+  const transport: PublicationTransport = {
     async createPlaceholder(channelId, report) {
       const destination = await channel(channelId);
       await requireWritable(destination);
@@ -64,13 +78,13 @@ export function createDiscordPublications(client: Client, guildId: string): Publ
     async inspect(channelId, messageId, reportId) {
       try {
         const message = await (await channel(channelId)).messages.fetch(messageId);
-        if (message.author.id !== client.user?.id) throw new Error('Report message has a different author.');
+        if (message.author.id !== client.user?.id) throw new SafeOperationalError(['report-message-mismatch']);
         if (message.embeds.some(embed => embed.footer?.text.startsWith(reportMarker(reportId, true)))) return 'published';
         if (message.embeds.some(embed => embed.footer?.text === reportMarker(reportId, false))) {
           await requireWritable(await channel(channelId));
           return 'pending';
         }
-        throw new Error('Report message marker does not match.');
+        throw new SafeOperationalError(['report-message-mismatch']);
       } catch (error) {
         if (missing(error)) return 'missing';
         throw error;
@@ -104,5 +118,11 @@ export function createDiscordPublications(client: Client, guildId: string): Publ
       await destination.messages.edit(id, payload);
       return id;
     },
+  };
+  return {
+    createPlaceholder: (...args) => safeDiscord(() => transport.createPlaceholder(...args)),
+    inspect: (...args) => safeDiscord(() => transport.inspect(...args)),
+    edit: (...args) => safeDiscord(() => transport.edit(...args)),
+    warning: (...args) => safeDiscord(() => transport.warning(...args)),
   };
 }

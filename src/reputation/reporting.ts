@@ -5,6 +5,7 @@ import type { ReportStore } from './report-store.js';
 import { createReportSettingsStore } from './report-settings.js';
 import { createWarningStore } from './warning-store.js';
 import type { WarningIssue } from './warning-store.js';
+import type { WarningDetail } from './warning-details.js';
 import { OperationalWarnings } from './operational-warnings.js';
 import { ReportPublisher } from './report-publisher.js';
 import { renderReport } from './report-render.js';
@@ -40,19 +41,19 @@ export function createReportingRuntime(client: Client, guildId: string) {
   let deliveryHealthy: boolean | undefined;
   const publisher = new ReportPublisher({
     guildId, transport, store: createReportStore(), settings: createReportSettingsStore(),
-    onHealth: healthy => {
+    onHealth: (healthy, details) => {
       if (deliveryHealthy !== healthy) {
         if (!healthy) console.warn('Reputation report delivery is unavailable; pending reports will be retried.');
         else if (deliveryHealthy === false) console.log('Reputation report delivery recovered.');
         deliveryHealthy = healthy;
       }
-      void warnings.setIssue('reports', !healthy);
+      void warnings.setIssue('reports', !healthy, details);
     },
   });
   return {
     async start() { await warnings.start(); await publisher.start(); },
     publish: () => publisher.wake(),
-    issue: (issue: WarningIssue, active: boolean) => warnings.setIssue(issue, active),
+    issue: (issue: WarningIssue, active: boolean, details?: readonly WarningDetail[]) => warnings.setIssue(issue, active, details),
     async channelChanged(channelId: string) {
       await warnings.channelChanged(channelId);
       await publisher.wake();

@@ -1,5 +1,7 @@
 import { TrackingLeaseLostError } from './tracking-store.js';
 import { PublicationPendingError } from './report-errors.js';
+import { classifyWarning } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 import type { TrackingChange, TrackingStore } from './tracking-store.js';
 
 export const CHECKPOINT_INTERVAL_MS = 5 * 60_000;
@@ -9,6 +11,7 @@ export interface TrackingStatusEvent {
   status: 'unavailable' | 'recovered' | 'suspended' | 'lease-lost';
   at: Date;
   reason: string;
+  details?: readonly WarningDetail[];
 }
 
 interface TrackerOptions {
@@ -39,6 +42,7 @@ export class VoiceTracker {
   private leaseLost = false;
   private retryAt = 0;
   private failures = 0;
+  private failureDetails = '';
 
   constructor(private readonly options: TrackerOptions) {
     this.now = options.now ?? (() => new Date());
@@ -233,8 +237,11 @@ export class VoiceTracker {
     }
     this.failures++;
     this.retryAt = at.getTime() + Math.min(5_000 * 2 ** Math.min(this.failures - 1, 6), CHECKPOINT_INTERVAL_MS);
-    if (this.failures === 1) {
-      this.options.onStatus?.({ status: 'unavailable', at, reason: 'database' });
+    const details = classifyWarning(error, 'database');
+    const key = details.join(',');
+    if (this.failures === 1 || key !== this.failureDetails) {
+      this.options.onStatus?.({ status: 'unavailable', at, reason: 'database', details });
     }
+    this.failureDetails = key;
   }
 }

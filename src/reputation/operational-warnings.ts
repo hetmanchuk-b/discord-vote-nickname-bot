@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { EmbedBuilder } from 'discord.js';
 import type { PublicationPayload } from './report-render.js';
 import type { PublicationTransport } from './discord-publications.js';
-import { warningHistory } from './warning-store.js';
+import { warningDetails, warningHistory } from './warning-store.js';
+import { safeWarningDetails, WARNING_DETAIL_LABELS } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 import type { WarningIssue, WarningState, WarningStore } from './warning-store.js';
 
 export const WARNING_UPDATE_MS = 60 * 60_000;
@@ -17,7 +19,12 @@ const historyTime = new Intl.DateTimeFormat('uk-UA', {
 
 export function renderWarning(guildId: string, state: WarningState, at: Date): PublicationPayload {
   const active = state.reasons.length > 0;
-  const reasons = state.reasons.map(reason => labels[reason as WarningIssue]).filter(Boolean);
+  const describe = (issue: WarningIssue, details: unknown) => {
+    const messages = safeWarningDetails(details).map(detail => WARNING_DETAIL_LABELS[detail]);
+    return labels[issue] + (messages.length ? `: ${messages.join(' ')}` : '');
+  };
+  const reasons = state.reasons.filter((reason): reason is WarningIssue => Object.hasOwn(labels, reason))
+    .map(reason => describe(reason, state.details?.[reason]));
   const summary = active ? `${reasons.join('\n')}\n\nНепідтверджений голосовий час не зараховується. Збережені бали не втрачаються.` :
     'Усі відомі проблеми усунено. Пропущений непідтверджений час не зараховується заднім числом.';
   const prefix = `${summary}\n\n**Історія · Europe/Kyiv**\n`;
@@ -28,7 +35,7 @@ export function renderWarning(guildId: string, state: WarningState, at: Date): P
   // Preserve whole entries in chronological order, keeping the newest ones
   // inside Discord's 4096-character description limit (not half a line).
   for (const entry of [...entries].reverse()) {
-    const status = entry.reasons.length ? `⚠️ ${entry.reasons.map(reason => labels[reason]).join('; ')}` :
+    const status = entry.reasons.length ? `⚠️ ${entry.reasons.map(reason => describe(reason, entry.details?.[reason])).join('; ')}` :
       '✅ Усі відомі проблеми усунено.';
     const line = `**${historyTime.format(new Date(entry.at))}** — ${status}`;
     if (length + line.length + 1 > 4096) break;
@@ -56,7 +63,7 @@ interface WarningOptions {
 // during DB outages; persistence restores the message ID and hourly throttle.
 export class OperationalWarnings {
   private readonly now: () => Date;
-  private readonly intents = new Map<WarningIssue, boolean>();
+  private readonly intents = new Map<WarningIssue, { active: boolean; details?: WarningDetail[] }>();
   private state?: WarningState;
   private destination: string | null = null;
   private loaded = false;
@@ -69,9 +76,13 @@ export class OperationalWarnings {
 
   start(): Promise<void> { return this.queue(); }
 
-  setIssue(issue: WarningIssue, active: boolean): Promise<void> {
-    if (this.stopped || this.intents.get(issue) === active) return this.tail;
-    this.intents.set(issue, active);
+  setIssue(issue: WarningIssue, active: boolean, details?: readonly WarningDetail[]): Promise<void> {
+    if (!Object.hasOwn(labels, issue)) return this.tail;
+    const previous = this.intents.get(issue);
+    // Generic health refreshes must not erase a more specific known cause.
+    const safe = active ? details === undefined ? previous?.details : safeWarningDetails(details) : undefined;
+    if (this.stopped || previous?.active === active && JSON.stringify(previous.details) === JSON.stringify(safe)) return this.tail;
+    this.intents.set(issue, { active, details: safe });
     if (active && !this.firstIssueAt) this.firstIssueAt = this.now();
     return this.queue();
   }
@@ -106,7 +117,7 @@ export class OperationalWarnings {
   private recordHistory(state: WarningState, at: Date): void {
     state.history = warningHistory([...state.history, {
       id: randomUUID(), at: at.toISOString(),
-      reasons: state.reasons.filter(reason => Object.hasOwn(labels, reason)),
+      reasons: state.reasons.filter(reason => Object.hasOwn(labels, reason)), details: state.details,
     }]);
   }
 
@@ -137,16 +148,23 @@ export class OperationalWarnings {
     // Adopt only the latest known state of pre-history warnings. Earlier edits
     // cannot be reconstructed reliably and must not be invented.
     if (!state.history.length && (state.messageId || state.reasons.length)) this.recordHistory(state, state.lastSeenAt);
-    const previousReasons = [...state.reasons].sort().join(',');
+    state.details = warningDetails(state.details, state.reasons);
+    const previousReasons = JSON.stringify([[...state.reasons].sort(), state.details]);
     const previous = state.reasons.length > 0;
     const reasons = new Set(state.reasons.filter(reason => Object.hasOwn(labels, reason)));
-    for (const [issue, active] of this.intents) {
-      if (active) reasons.add(issue);
-      else reasons.delete(issue);
+    for (const [issue, intent] of this.intents) {
+      if (intent.active) {
+        reasons.add(issue);
+        if (intent.details !== undefined) state.details[issue] = intent.details;
+      } else {
+        reasons.delete(issue);
+        delete state.details[issue];
+      }
     }
     state.reasons = [...reasons].sort();
+    state.details = warningDetails(state.details, state.reasons);
     const active = state.reasons.length > 0;
-    const changed = previousReasons !== state.reasons.join(',');
+    const changed = previousReasons !== JSON.stringify([state.reasons, state.details]);
     if (changed) this.recordHistory(state, active && !previous ? this.firstIssueAt ?? now : now);
     if (active && !previous) state.activeSince = this.firstIssueAt ?? now;
     if (!active) this.firstIssueAt = undefined;

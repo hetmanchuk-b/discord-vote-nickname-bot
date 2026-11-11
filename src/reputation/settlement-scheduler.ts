@@ -1,5 +1,7 @@
 import { kyivDate, nextKyivMidnight } from './kyiv-day.js';
 import type { SettledDay, SettlementStore } from './settlement-store.js';
+import { classifyWarning } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 
 interface SettlementSchedulerOptions {
   guildId: string;
@@ -7,7 +9,7 @@ interface SettlementSchedulerOptions {
   beforeSettlement(): Promise<void>;
   now?: () => Date;
   onSettled?: (day: SettledDay) => void;
-  onUnavailable?: () => void;
+  onUnavailable?: (details: readonly WarningDetail[]) => void;
   onRecovered?: () => void;
 }
 
@@ -19,6 +21,7 @@ export class SettlementScheduler {
   private running?: Promise<void>;
   private stopped = true;
   private failures = 0;
+  private failureDetails = '';
 
   constructor(private readonly options: SettlementSchedulerOptions) {
     this.now = options.now ?? (() => new Date());
@@ -70,9 +73,12 @@ export class SettlementScheduler {
       const now = this.now();
       const crossedMidnight = kyivDate(now) !== kyivDate(at);
       this.schedule(caughtUp && !crossedMidnight ? Math.max(1, nextKyivMidnight(now).getTime() - now.getTime()) : 1_000);
-    } catch {
+    } catch (error) {
       this.failures++;
-      if (this.failures === 1) this.options.onUnavailable?.();
+      const details = classifyWarning(error, 'database');
+      const key = details.join(',');
+      if (this.failures === 1 || key !== this.failureDetails) this.options.onUnavailable?.(details);
+      this.failureDetails = key;
       this.schedule(Math.min(60_000 * 2 ** Math.min(this.failures - 1, 3), 5 * 60_000));
     }
   }

@@ -201,7 +201,8 @@ test('warning message identity, issue groups, and hourly timestamp persist indep
   await fixture(async f => {
     const warnings = createWarningStore(() => f.database);
     const at = new Date();
-    const history = [{ id: 'first-warning', at: at.toISOString(), reasons: ['reports', 'tracking'] }];
+    const details = { tracking: ['database-timeout'], reports: ['discord-send-messages'] };
+    const history = [{ id: 'first-warning', at: at.toISOString(), reasons: ['reports', 'tracking'], details }];
     await warnings.save(f.guildId, {
       channelId, messageId, reasons: ['tracking', 'reports'], history, activeSince: at,
       lastSeenAt: at, lastEditedAt: at, displayedActive: true,
@@ -211,6 +212,7 @@ test('warning message identity, issue groups, and hourly timestamp persist indep
     assert.equal(reloaded.state.messageId, messageId);
     assert.equal(reloaded.state.lastEditedAt.getTime(), at.getTime());
     assert.deepEqual(reloaded.state.history, history);
+    assert.deepEqual(reloaded.state.details, details);
     await f.tracking.deleteMemberData(f.guildId, users[0], at);
     assert.deepEqual((await warnings.load(f.guildId)).state.reasons, ['tracking', 'reports']);
     assert.deepEqual((await warnings.load(f.guildId)).state.history, history);

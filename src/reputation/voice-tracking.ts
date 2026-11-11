@@ -5,6 +5,8 @@ import { CHECKPOINT_INTERVAL_MS, VoiceTracker } from './voice-tracker.js';
 import { SettlementScheduler } from './settlement-scheduler.js';
 import { createSettlementStore } from './settlement-store.js';
 import { createReportingRuntime } from './reporting.js';
+import { SafeOperationalError } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 
 export function getTrackingConfiguration(environment: NodeJS.ProcessEnv = process.env): {
   enabled: boolean;
@@ -52,7 +54,12 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
       return guild ? eligibleVoiceUserIds(guild) : [];
     },
     onStatus: event => {
-      run(reporting.issue('tracking', event.status !== 'recovered'));
+      const causes: Record<string, WarningDetail> = {
+        gateway: 'gateway-disconnected', 'guild-unavailable': 'guild-unavailable',
+        'observation-gap': 'observation-gap', 'another-tracker': 'tracking-ownership', database: 'database-failure',
+      };
+      const details = event.details ?? [Object.hasOwn(causes, event.reason) ? causes[event.reason]! : 'tracking-unavailable'];
+      run(reporting.issue('tracking', event.status !== 'recovered', details));
       if (event.status === 'recovered') console.log('Reputation tracking recovered.');
       else console.warn(`Reputation tracking ${event.status}: ${event.reason}. Only persisted time is retained.`);
     },
@@ -63,10 +70,10 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
     store: createSettlementStore(),
     beforeSettlement: async () => {
       await tracker.checkpoint();
-      if (tracker.status === 'lease-lost') throw new Error('Tracking ownership was lost.');
+      if (tracker.status === 'lease-lost') throw new SafeOperationalError(['tracking-ownership']);
     },
     onSettled: () => { run(reporting.publish()); },
-    onUnavailable: () => { run(reporting.issue('settlement', true)); },
+    onUnavailable: details => { run(reporting.issue('settlement', true, details)); },
     onRecovered: () => { run(reporting.issue('settlement', false)); },
   });
 

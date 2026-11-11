@@ -33,6 +33,7 @@ function publisherFixture(t, overrides = {}) {
   let loseFinish = false;
   const calls = { create: 0, edit: 0, finish: 0, prepare: 0, missing: 0 };
   const health = [];
+  const healthDetails = [];
   const store = {
     pending: async () => ['pending', 'publishing'].includes(current.status) ? [structuredClone(current)] : [],
     get: async () => structuredClone(current),
@@ -59,9 +60,9 @@ function publisherFixture(t, overrides = {}) {
         if (loseEdit) { loseEdit = false; throw new Error('unknown edit acknowledgement'); }
       },
     },
-    onHealth: value => health.push(value),
+    onHealth: (value, details) => { health.push(value); healthDetails.push(details); },
   });
-  return { publisher, calls, health, timers, store,
+  return { publisher, calls, health, healthDetails, timers, store,
     current: () => current, destination(value) { destination = value; },
     display(value) { displayed = value; },
     loseEdit() { loseEdit = true; }, loseFinish() { loseFinish = true; },
@@ -100,6 +101,7 @@ test('missing configuration queues the report until a channel is configured', as
   await f.publisher.start();
   assert.equal(f.calls.create, 0);
   assert.equal(f.calls.prepare, 0);
+  assert.deepEqual(f.healthDetails[0], ['report-channel-unconfigured']);
   f.destination('new-channel');
   await f.publisher.wake();
   assert.equal(f.current().channelId, 'new-channel');
@@ -448,4 +450,35 @@ test('warning timestamps use Kyiv DST offsets, not the machine timezone', () => 
     assert.ok(description.includes(expected));
     assert.match(description,/Europe\/Kyiv/);
   }
+});
+
+test('specific causes change within a category, survive generic refreshes, and remain in recovery history',async t=>{
+  const f=warningFixture(t);
+  await f.warnings.start();
+  await f.warnings.setIssue('tracking',true,['database-timeout']);
+  f.at(10);await f.warnings.setIssue('tracking',true,['database-authentication']);
+  assert.equal(f.updates.length,1); // Preserve hourly throttling.
+  assert.equal(f.saved().history.length,2);
+  f.at(11);await f.warnings.setIssue('tracking',true);
+  assert.deepEqual(f.saved().details.tracking,['database-authentication']);
+  assert.equal(f.saved().history.length,2);
+  f.at(60);await f.warnings.start();
+  const description=f.updates.at(-1).payload.embeds[0].toJSON().description;
+  assert.match(description,/час очікування відповіді бази даних/);
+  assert.match(description,/відхилила автентифікацію/);
+  f.at(62);await f.warnings.setIssue('tracking',false);
+  const recovered=f.updates.at(-1).payload.embeds[0].toJSON().description;
+  assert.match(recovered,/✅ Усі відомі проблеми усунено/);
+  assert.match(recovered,/відхилила автентифікацію/);
+  assert.deepEqual(f.saved().details,{});
+  await f.warnings.stop();
+});
+
+test('report publication forwards safe database diagnostics rather than raw errors',async t=>{
+  const f=publisherFixture(t);
+  f.store.pending=async()=>{throw {code:'P2021',message:'private connection string'};};
+  await f.publisher.start();
+  assert.deepEqual(f.healthDetails[0],['database-schema']);
+  assert.doesNotMatch(JSON.stringify(f.healthDetails),/private/);
+  await f.publisher.stop();
 });

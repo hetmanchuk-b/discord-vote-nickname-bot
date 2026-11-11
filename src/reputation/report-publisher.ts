@@ -2,13 +2,15 @@ import type { ReportSettingsStore } from './report-settings.js';
 import type { ReportStore, DailyReport } from './report-store.js';
 import type { PublicationTransport } from './discord-publications.js';
 import { renderReport } from './report-render.js';
+import { classifyWarning, safeWarningDetails, SafeOperationalError } from './warning-details.js';
+import type { WarningDetail } from './warning-details.js';
 
 interface PublisherOptions {
   guildId: string;
   store: ReportStore;
   settings: ReportSettingsStore;
   transport: PublicationTransport;
-  onHealth(healthy: boolean): void;
+  onHealth(healthy: boolean, details?: readonly WarningDetail[]): void;
 }
 
 // Only presentation happens here; no balance or settlement writes. Durable states
@@ -54,6 +56,11 @@ export class ReportPublisher {
   private async process(): Promise<void> {
     let failed = false;
     let more = false;
+    const details = new Set<WarningDetail>();
+    const failure = (error: unknown) => {
+      failed = true;
+      for (const detail of classifyWarning(error, 'database')) details.add(detail);
+    };
     try {
       const reports = await this.options.store.pending(this.options.guildId);
       more = reports.length === 31;
@@ -64,11 +71,11 @@ export class ReportPublisher {
           await this.options.store.noteAttempt(report.id);
           await this.deliver(report, destination);
         }
-        catch { failed = true; }
+        catch (error) { failure(error); }
       }
-    } catch { failed = true; }
+    } catch (error) { failure(error); }
     if (this.stopped) return;
-    this.options.onHealth(!failed);
+    this.options.onHealth(!failed, safeWarningDetails([...details]));
     this.failures = failed ? this.failures + 1 : 0;
     if (!this.stopped && (failed || more)) {
       const delay = failed ? Math.min(60_000 * 2 ** Math.min(this.failures - 1, 3), 5 * 60_000) : 1_000;
@@ -82,23 +89,23 @@ export class ReportPublisher {
     let report = await store.get(initial.id);
     if (!report || report.status === 'published' || report.status === 'missing') return;
     if (report.status === 'pending') {
-      if (!destination) throw new Error('No report channel configured.');
+      if (!destination) throw new SafeOperationalError(['report-channel-unconfigured']);
       if (!report.messageId || report.channelId !== destination) {
         const id = await transport.createPlaceholder(destination, report);
         report = await store.attachMessage(report.id, destination, id);
       }
       if (report.status === 'published') return;
-      if (!report.messageId || !report.channelId) throw new Error('Missing report destination.');
+      if (!report.messageId || !report.channelId) throw new SafeOperationalError(['report-state']);
       const state = await transport.inspect(report.channelId, report.messageId, report.id);
       if (state === 'missing') {
         await store.clearPlaceholder(report.id, report.messageId);
-        throw new Error('Report placeholder disappeared.');
+        throw new SafeOperationalError(['discord-message-missing']);
       }
-      if (state === 'published' && report.status === 'pending') throw new Error('Unexpected report publication state.');
+      if (state === 'published' && report.status === 'pending') throw new SafeOperationalError(['report-state']);
       report = await store.prepare(report.id);
     }
     if (report.status !== 'publishing') return;
-    if (!report.channelId || !report.messageId) throw new Error('Missing frozen report destination.');
+    if (!report.channelId || !report.messageId) throw new SafeOperationalError(['report-state']);
     const state = await transport.inspect(report.channelId, report.messageId, report.id);
     if (state === 'missing') {
       await store.markMissing(report.id);
