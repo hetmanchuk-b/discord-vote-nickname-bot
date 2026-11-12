@@ -131,24 +131,24 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         const publishing = await tx.reputationReportEntry.findFirst({
           where: { guildId, userId, report: { status: 'publishing' } }, select: { reportId: true },
         });
-        const penaltyPublishing = await tx.voicePenaltyPoll.findFirst({
+        const pollPublishing = await tx.voiceReputationPoll.findFirst({
           where: { guildId, publishing: true, publishedAt: null, messageMissing: false,
             OR: [{ targetId: userId }, { noVoterIds: { has: userId } }] }, select: { id: true },
         });
-        if (publishing || penaltyPublishing) throw new PublicationPendingError();
+        if (publishing || pollPublishing) throw new PublicationPendingError();
         // Cancel target polls before erasing enrollment. Re-enrollment cannot
         // resurrect them. Published outcomes remain immutable public history.
-        await tx.voicePenaltyPoll.updateMany({
+        await tx.voiceReputationPoll.updateMany({
           where: { guildId, targetId: userId, publishedAt: null, publishing: false },
-          data: { status: 'cancelled', reason: 'target-erased', actualFine: 0, balanceAfter: null, balanceBefore: null, noVoterIds: [], closedAt: at },
+          data: { status: 'cancelled', reason: 'target-erased', appliedAmount: 0, balanceAfter: null, balanceBefore: null, noVoterIds: [], closedAt: at },
         });
-        await tx.voicePenaltyPoll.updateMany({
+        await tx.voiceReputationPoll.updateMany({
           where: { guildId, targetId: userId, messageId: null }, data: { messageMissing: true },
         });
-        await tx.voicePenaltyVote.deleteMany({ where: { OR: [
+        await tx.voiceReputationVote.deleteMany({ where: { OR: [
           { userId, poll: { guildId } }, { poll: { guildId, targetId: userId, status: 'cancelled', publishedAt: null } },
         ] } });
-        await tx.$executeRaw`UPDATE voice_penalty_polls SET no_voter_ids = array_remove(no_voter_ids, ${userId})
+        await tx.$executeRaw`UPDATE voice_reputation_polls SET no_voter_ids = array_remove(no_voter_ids, ${userId})
           WHERE guild_id = ${guildId} AND published_at IS NULL AND NOT publishing`;
         await tx.reputationReportEntry.deleteMany({
           where: { guildId, userId, report: { status: { in: ['pending', 'missing'] } } },

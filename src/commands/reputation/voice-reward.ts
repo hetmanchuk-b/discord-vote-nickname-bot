@@ -1,2 +1,2 @@
-import { voiceRewardCommand } from '../../reputation/voice-penalty-command.js';
+import { voiceRewardCommand } from '../../reputation/voice-poll-command.js';
 export default voiceRewardCommand;

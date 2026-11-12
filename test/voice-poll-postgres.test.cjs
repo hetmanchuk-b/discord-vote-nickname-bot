@@ -3,7 +3,7 @@ const {test}=require('node:test');
 const process=require('node:process');
 const {randomInt,randomUUID}=require('node:crypto');
 const {createReputationDatabase}=require('../dist/reputation/database.js');
-const {createPenaltyStore,PenaltyError}=require('../dist/reputation/voice-penalty-store.js');
+const {createVoicePollStore,VoicePollError}=require('../dist/reputation/voice-poll-store.js');
 const {createTrackingStore}=require('../dist/reputation/tracking-store.js');
 const {PublicationPendingError}=require('../dist/reputation/report-errors.js');
 const {createSettlementStore}=require('../dist/reputation/settlement-store.js');
@@ -13,14 +13,14 @@ const options={skip:!url&&'Set REPUTATION_TEST_DATABASE_URL to a disposable migr
 const target='111111111111111111',caller='222222222222222222',other='333333333333333333',fourth='444444444444444444';
 async function fixture(callback){
   const db=createReputationDatabase(url);const guildId=`${Date.now()}${randomInt(100000,999999)}`;
-  const store=createPenaltyStore(()=>db),tracking=createTrackingStore(()=>db);
+  const store=createVoicePollStore(()=>db),tracking=createTrackingStore(()=>db);
   try{
     await db.reputationGuild.create({data:{guildId}});
     await db.reputationMember.create({data:{guildId,userId:target,hasParticipated:true,balance:100}});
     const request={guildId,targetId:target,initiatorId:caller,voiceChannelId:'555555555555555555',textChannelId:'666666666666666666',amount:50};
     await callback({db,guildId,store,tracking,request});
   }finally{try{
-    await db.voicePenaltyPoll.deleteMany({where:{guildId}});
+    await db.voiceReputationPoll.deleteMany({where:{guildId}});
     await db.reputationDailyAward.deleteMany({where:{guildId}});
     await db.reputationSettlement.deleteMany({where:{guildId}});
     await db.reputationVoiceInterval.deleteMany({where:{guildId}});
@@ -38,7 +38,7 @@ let sequence=100000000000000000n;
 const vote=(f,poll,userId,yes)=>f.store.vote({interactionId:String(++sequence),kind:poll.kind,id:poll.id,guildId:f.guildId,textChannelId:poll.textChannelId,messageId:poll.messageId,userId,yes});
 async function expire(f,poll,userIds){
   const endsAt=new Date(Date.now()-100);
-  await f.db.voicePenaltyPoll.update({where:{id:poll.id},data:{startedAt:new Date(endsAt.getTime()-120000),endsAt}});
+  await f.db.voiceReputationPoll.update({where:{id:poll.id},data:{startedAt:new Date(endsAt.getTime()-120000),endsAt}});
   return {at:new Date(),userIds};
 }
 const balance=f=>f.db.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId:f.guildId,userId:target}}}).then(row=>row.balance);
@@ -56,16 +56,16 @@ test('one eligible Yes applies once, target may leave, and concurrent retries ca
   const poll=await active(f);await vote(f,poll,caller,true);
   const evidence=await expire(f,poll,[caller]);
   const results=await Promise.all([f.store.finish(poll.id,evidence),f.store.finish(poll.id,evidence)]);
-  assert.ok(results.every(result=>result.status==='succeeded'&&result.actualFine===50));
+  assert.ok(results.every(result=>result.status==='succeeded'&&result.appliedAmount===50));
   assert.equal(await balance(f),50);
-  assert.equal(await f.db.voicePenaltyVote.count({where:{pollId:poll.id}}),0);
+  assert.equal(await f.db.voiceReputationVote.count({where:{pollId:poll.id}}),0);
   const next=await f.store.reserve(f.request); // No cooldown after closure.
   assert.equal(next.status,'creating');
 }));
 
 test('any eligible No vetoes, only No identities are frozen, and choices can change',options,async()=>fixture(async f=>{
   const poll=await active(f);await vote(f,poll,caller,true);await vote(f,poll,other,true);await vote(f,poll,other,false);
-  assert.equal(await f.db.voicePenaltyVote.count({where:{pollId:poll.id}}),2);
+  assert.equal(await f.db.voiceReputationVote.count({where:{pollId:poll.id}}),2);
   const result=await f.store.finish(poll.id,await expire(f,poll,[caller,other,fourth]));
   assert.equal(result.status,'failed');assert.deepEqual(result.noVoterIds,[other]);assert.equal(await balance(f),100);
 }));
@@ -99,8 +99,8 @@ test('paused participants are eligible, bounds clamp actual fines, and floor tar
   await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:-480}});
   const poll=await active(f,100);await vote(f,poll,caller,true);
   const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));
-  assert.equal(result.actualFine,20);assert.equal(result.balanceAfter,-500);
-  await assert.rejects(f.store.reserve(f.request),error=>error instanceof PenaltyError&&error.code==='balance-floor');
+  assert.equal(result.appliedAmount,20);assert.equal(result.balanceAfter,-500);
+  await assert.rejects(f.store.reserve(f.request),error=>error instanceof VoicePollError&&error.code==='balance-floor');
 }));
 
 test('never-participated and erased users are rejected; verified unsettled visits count as participation',options,async()=>fixture(async f=>{
@@ -141,7 +141,7 @@ for(const unverified of [null,'late'])test(`unverified deadline ${unverified} ca
 test('floor reached while voting cancels rather than claiming a zero-point deduction',options,async()=>fixture(async f=>{
   const poll=await active(f);await vote(f,poll,caller,true);
   await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:-500}});
-  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.reason,'balance-floor');assert.equal(result.actualFine,0);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.reason,'balance-floor');assert.equal(result.appliedAmount,0);
 }));
 
 test('reputation deletion cancels active polls and cannot resurrect a fine after re-enrollment',options,async()=>fixture(async f=>{
@@ -168,15 +168,15 @@ test('unpublished veto identities and a member’s pending choices are removed o
 
 test('a failed finalization rolls back balance, status, and vote removal together',options,async()=>fixture(async f=>{
   const poll=await active(f);await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
-  const failing=createPenaltyStore(()=>({$transaction:(callback,settings)=>f.db.$transaction(tx=>callback(new Proxy(tx,{
+  const failing=createVoicePollStore(()=>({$transaction:(callback,settings)=>f.db.$transaction(tx=>callback(new Proxy(tx,{
     get(object,key){
-      if(key==='voicePenaltyVote')return {findMany:args=>object.voicePenaltyVote.findMany(args),deleteMany:async()=>{throw new Error('injected rollback');}};
+      if(key==='voiceReputationVote')return {findMany:args=>object.voiceReputationVote.findMany(args),deleteMany:async()=>{throw new Error('injected rollback');}};
       const value=Reflect.get(object,key);return typeof value==='function'?value.bind(object):value;
     },
   })),settings)}));
   await assert.rejects(failing.finish(poll.id,evidence),/injected rollback/);
   assert.equal(await balance(f),100);assert.equal((await f.store.get(poll.id)).status,'active');
-  assert.equal(await f.db.voicePenaltyVote.count({where:{pollId:poll.id}}),1);
+  assert.equal(await f.db.voiceReputationVote.count({where:{pollId:poll.id}}),1);
   await f.store.finish(poll.id,evidence);assert.equal(await balance(f),50);
 }));
 
@@ -194,17 +194,17 @@ test('reward unanimity credits once, permits paused targets, and records the act
   await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:4980}});
   const poll=await active(f,100,'reward');await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
   const results=await Promise.all([f.store.finish(poll.id,evidence),f.store.finish(poll.id,evidence)]);
-  assert.ok(results.every(result=>result.kind==='reward'&&result.actualFine===20&&result.balanceAfter===5000));
+  assert.ok(results.every(result=>result.kind==='reward'&&result.appliedAmount===20&&result.balanceAfter===5000));
   assert.equal(await balance(f),5000);
   await assert.rejects(f.store.reserve({...f.request,kind:'reward'}),error=>error.code==='balance-ceiling');
-  const recovered=await createPenaltyStore(()=>f.db).finish(poll.id,null);assert.equal(recovered.actualFine,20);assert.equal(await balance(f),5000);
+  const recovered=await createVoicePollStore(()=>f.db).finish(poll.id,null);assert.equal(recovered.appliedAmount,20);assert.equal(await balance(f),5000);
 }));
 
 test('database rejects legacy penalty-style processing of a reward and rolls back the debit',options,async()=>fixture(async f=>{
   const poll=await active(f,50,'reward');await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
   await assert.rejects(f.db.$transaction(async tx=>{
     await tx.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:50}});
-    await tx.voicePenaltyPoll.update({where:{id:poll.id},data:{status:'succeeded',actualFine:50,balanceAfter:50}});
+    await tx.voiceReputationPoll.update({where:{id:poll.id},data:{status:'succeeded',appliedAmount:50,balanceAfter:50}});
   }));
   assert.equal(await balance(f),100);assert.equal((await f.store.get(poll.id)).status,'active');
   const result=await f.store.finish(poll.id,evidence);assert.equal(result.balanceBefore,100);assert.equal(result.balanceAfter,150);
@@ -213,7 +213,7 @@ test('database rejects legacy penalty-style processing of a reward and rolls bac
 test('rewards can raise a floor balance and do not change attendance/absence streaks',options,async()=>fixture(async f=>{
   await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:-500,absenceStreak:8}});
   const poll=await active(f,50,'reward');await vote(f,poll,caller,true);
-  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.actualFine,50);assert.equal(await balance(f),-450);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.appliedAmount,50);assert.equal(await balance(f),-450);
   const member=await f.db.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId:f.guildId,userId:target}}});assert.equal(member.absenceStreak,8);
 }));
 
@@ -242,13 +242,13 @@ test('wrong-kind buttons cannot cast a vote against the same saved message',opti
   const poll=await active(f,50,'reward');
   await assert.rejects(f.store.vote({id:poll.id,guildId:f.guildId,textChannelId:poll.textChannelId,messageId:poll.messageId,userId:caller,
     yes:true,interactionId:'200000000000000001',kind:'penalty'}),error=>error.code==='invalid');
-  assert.equal(await f.db.voicePenaltyVote.count({where:{pollId:poll.id}}),0);
+  assert.equal(await f.db.voiceReputationVote.count({where:{pollId:poll.id}}),0);
 }));
 
 test('ceiling reached during reward voting cancels rather than claiming a zero-point award',options,async()=>fixture(async f=>{
   const poll=await active(f,50,'reward');await vote(f,poll,caller,true);
   await f.db.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:target}},data:{balance:5000}});
-  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.reason,'balance-ceiling');assert.equal(result.actualFine,0);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[caller]));assert.equal(result.reason,'balance-ceiling');assert.equal(result.appliedAmount,0);
 }));
 
 test('erasure cancels a reward, and daily settlement serializes with a reward without losing either credit',options,async()=>fixture(async f=>{
@@ -267,8 +267,8 @@ test('erasure cancels a reward, and daily settlement serializes with a reward wi
 test('lost final transaction acknowledgement/restart returns the durable result without reapplying money',options,async()=>fixture(async f=>{
   const poll=await active(f);await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
   const first=await f.store.finish(poll.id,evidence);
-  const restarted=createPenaltyStore(()=>f.db);const again=await restarted.finish(poll.id,null);
-  assert.equal(again.actualFine,first.actualFine);assert.equal(await balance(f),50);
+  const restarted=createVoicePollStore(()=>f.db);const again=await restarted.finish(poll.id,null);
+  assert.equal(again.appliedAmount,first.appliedAmount);assert.equal(await balance(f),50);
   assert.ok((await restarted.pending(f.guildId)).some(row=>row.id===poll.id));
   await restarted.delivered(poll.id,true);assert.equal((await restarted.pending(f.guildId)).length,0);
 }));

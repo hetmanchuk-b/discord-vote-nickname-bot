@@ -25,6 +25,19 @@ npm run db:status
 
 The original six reputation migrations, including `20261111050000_attendance_rewards`, were applied to the configured hosted database with approval. The newer `20261111060000_warning_history` migration was subsequently applied with explicit approval; status verification confirmed the original seven hosted migrations are applied. The subsequent `20261111070000_voice_penalties` migration was applied with explicit approval; status verification confirmed the original eight hosted migrations are applied. The subsequent `20261111080000_voice_rewards` migration was applied with explicit approval; status verification confirmed all nine hosted migrations are up to date. It preserves existing balances and penalty history, adds the vote kind/pre-balance audit, and prevents penalty-only binaries from debiting rewards. Stop the old bot before replacing its build and run only one instance. The warning-history migration adds persistent JSON history; the voice-penalty migration adds durable poll/vote tables. Neither adjusts existing balances. The owner confirmed the bot was stopped before the attendance migration. Other installations must review and apply pending migrations before deploying the updated build. Stop the old bot first; it is not compatible with the new attendance/bounded-balance accounting. Existing guilds start attendance accounting on the next full Kyiv day after migration, with fresh streaks; live balances are clamped to −500…5,000 without rewriting published history. Migrations must be reviewed and explicitly applied with `npm run db:migrate` from a trusted checkout. Do not use `migrate reset` or automatic startup migrations.
 
+### Neutral voting rename: hosted migration applied
+
+`20261111090000_neutral_voice_polls` was **applied to the configured hosted database with explicit approval and confirmation that the bot was stopped**. All ten migrations are applied, the migration checksum matches, and the Prisma schema diff is clean. Before/after verification confirmed unchanged poll/vote/member rows and preserved table OIDs. The matching bot build still needs to be uploaded before restarting. It renames poll/vote tables to `voice_reputation_polls` / `voice_reputation_votes`, `actual_fine` to `applied_amount`, and the associated indexes/constraints. It preserves rows, IDs, deadlines, choices, audit results and balances. Old migrations are not rewritten.
+
+For other installations, or when reviewing the cutover:
+
+1. Prefer letting active polls finish before stopping the bot. A deadline missed during downtime still cancels without financial change, as designed.
+2. Stop **all** old bot instances. Review the migration and preserve a verified backup/restore point.
+3. With explicit approval, apply the pending migration from the trusted checkout using `npm run db:migrate`; verify status. Do not reset or drop/recreate tables.
+4. Replace the entire old hosted `dist/` with the fresh build (including generated Prisma Client), then start only the new version. Old binaries cannot use the renamed schema. Local `npm run build` now cleans obsolete compiled modules automatically.
+
+The slash-command definitions, both existing button prefixes, and `VP:<id>:active|final` message markers are unchanged. No command re-registration is needed solely for this rename if both commands are already registered. Do not roll back to the old binary against the renamed database; any reverse cutover needs a separately reviewed migration.
+
 ## 2. Register slash commands explicitly
 
 Your local `data/config.json` must contain the correct application client ID and bot token. Then, when you approve updating this application's global command list:

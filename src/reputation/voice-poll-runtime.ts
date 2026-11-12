@@ -1,58 +1,58 @@
-import type { PenaltyEvidence, PenaltyPoll, PenaltyStore, PenaltyVoteRequest, VoiceVoteKind } from './voice-penalty-store.js';
-import { PenaltyError, penaltyOpen } from './voice-penalty-store.js';
-import { renderPenalty } from './voice-penalty-render.js';
-import type { PenaltyPayload } from './voice-penalty-render.js';
+import type { VoicePollEvidence, VoicePoll, VoicePollStore, VoicePollVoteRequest, VoicePollKind } from './voice-poll-store.js';
+import { VoicePollError, voicePollOpen } from './voice-poll-store.js';
+import { renderVoicePoll } from './voice-poll-render.js';
+import type { VoicePollPayload } from './voice-poll-render.js';
 
-export interface PenaltyPresence {
+export interface VoicePollPresence {
   channelFor(userId: string): string | null;
   humans(channelId: string): readonly string[];
-  evidence(channelId: string, deadline: Date, ignoreUserId?: string): PenaltyEvidence | null;
+  evidence(channelId: string, deadline: Date, ignoreUserId?: string): VoicePollEvidence | null;
 }
-export interface PenaltyMessage { id: string; at: Date }
-export interface PenaltyTransport {
-  publish(poll: PenaltyPoll, beforeSend?: () => void): Promise<PenaltyMessage>;
-  find(poll: PenaltyPoll): Promise<PenaltyMessage | null>;
-  inspect(poll: PenaltyPoll): Promise<'active' | 'final' | 'missing'>;
-  edit(poll: PenaltyPoll, payload: PenaltyPayload): Promise<void>;
+export interface VoicePollMessage { id: string; at: Date }
+export interface VoicePollTransport {
+  publish(poll: VoicePoll, beforeSend?: () => void): Promise<VoicePollMessage>;
+  find(poll: VoicePoll): Promise<VoicePollMessage | null>;
+  inspect(poll: VoicePoll): Promise<'active' | 'final' | 'missing'>;
+  edit(poll: VoicePoll, payload: VoicePollPayload): Promise<void>;
 }
-export class PenaltyUserError extends Error {
-  constructor(readonly publicMessage: string) { super('Voice penalty validation failed.'); }
+export class VoicePollUserError extends Error {
+  constructor(readonly publicMessage: string) { super('Voice poll validation failed.'); }
 }
-export interface StartPenalty {
-  guildId: string; initiatorId: string; targetId: string; textChannelId: string; amount: number; kind?: VoiceVoteKind;
+export interface StartVoicePoll {
+  guildId: string; initiatorId: string; targetId: string; textChannelId: string; amount: number; kind?: VoicePollKind;
 }
-export interface VoicePenalties {
-  create(request: StartPenalty): Promise<PenaltyPoll>;
-  vote(request: PenaltyVoteRequest): Promise<boolean>;
+export interface VoicePolls {
+  create(request: StartVoicePoll): Promise<VoicePoll>;
+  vote(request: VoicePollVoteRequest): Promise<boolean>;
 }
 interface Options {
-  guildId?: string; store: PenaltyStore; presence: PenaltyPresence; transport: PenaltyTransport; now?: () => Date;
+  guildId?: string; store: VoicePollStore; presence: VoicePollPresence; transport: VoicePollTransport; now?: () => Date;
   beforeCreate?: () => Promise<void>;
 }
 
-export class PenaltyRuntime implements VoicePenalties {
+export class VoicePollRuntime implements VoicePolls {
   private readonly now: () => Date;
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly jobs = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
-  private readonly observations = new Map<string, PenaltyEvidence | null>();
+  private readonly observations = new Map<string, VoicePollEvidence | null>();
   private readonly failures = new Map<string, number>();
   private stopped = false;
   constructor(private readonly options: Options) { this.now = options.now ?? (() => new Date()); }
 
   private guild(guildId: string) {
-    if (!this.options.guildId || guildId !== this.options.guildId) throw new PenaltyUserError('❌ Команда доступна лише на налаштованому сервері репутації.');
-    if (this.stopped) throw new PenaltyUserError('⌛ Бот завершує роботу. Спробуйте пізніше.');
+    if (!this.options.guildId || guildId !== this.options.guildId) throw new VoicePollUserError('❌ Команда доступна лише на налаштованому сервері репутації.');
+    if (this.stopped) throw new VoicePollUserError('⌛ Бот завершує роботу. Спробуйте пізніше.');
   }
-  private startChannel(request: StartPenalty): string {
-    if (!['penalty','reward'].includes(request.kind ?? 'penalty') || request.targetId === request.initiatorId || ![10,50,100].includes(request.amount)) throw new PenaltyError('invalid');
+  private startChannel(request: StartVoicePoll): string {
+    if (!['penalty','reward'].includes(request.kind ?? 'penalty') || request.targetId === request.initiatorId || ![10,50,100].includes(request.amount)) throw new VoicePollError('invalid');
     const channel = this.options.presence.channelFor(request.initiatorId);
-    if (!channel || this.options.presence.channelFor(request.targetId) !== channel) throw new PenaltyUserError('❌ Ви та адресат повинні бути в одному звичайному голосовому каналі.');
+    if (!channel || this.options.presence.channelFor(request.targetId) !== channel) throw new VoicePollUserError('❌ Ви та адресат повинні бути в одному звичайному голосовому каналі.');
     const humans = new Set(this.options.presence.humans(channel));
-    if (!humans.has(request.initiatorId) || !humans.has(request.targetId) || humans.size < 4) throw new PenaltyUserError('❌ На початку в каналі мають бути щонайменше чотири людини, включно з вами та адресатом.');
+    if (!humans.has(request.initiatorId) || !humans.has(request.targetId) || humans.size < 4) throw new VoicePollUserError('❌ На початку в каналі мають бути щонайменше чотири людини, включно з вами та адресатом.');
     return channel;
   }
-  async create(request: StartPenalty): Promise<PenaltyPoll> {
+  async create(request: StartVoicePoll): Promise<VoicePoll> {
     this.guild(request.guildId);
     const voiceChannelId = this.startChannel(request);
     await this.options.beforeCreate?.(); // Persist a first ongoing verified visit before checking enrollment.
@@ -61,10 +61,10 @@ export class PenaltyRuntime implements VoicePenalties {
       await this.exclusive(poll.id,async()=>{
         if (this.startChannel(request) !== voiceChannelId) {
           await this.options.store.cancel(poll.id,'start-invalid');
-          throw new PenaltyError('invalid');
+          throw new VoicePollError('invalid');
         }
         const message = await this.options.transport.publish(poll,()=>{
-          if (this.startChannel(request) !== voiceChannelId) throw new PenaltyUserError('❌ Початковий голосовий канал змінився.');
+          if (this.startChannel(request) !== voiceChannelId) throw new VoicePollUserError('❌ Початковий голосовий канал змінився.');
         });
         const active = await this.options.store.activate(poll.id,message.id,message.at,
           this.options.presence.evidence(voiceChannelId,message.at));
@@ -73,23 +73,23 @@ export class PenaltyRuntime implements VoicePenalties {
     } catch (error) {
       // Unknown Discord acknowledgements keep the durable reservation. Recovery
       // searches for the same marker; it never blindly creates another poll.
-      if (error instanceof PenaltyUserError) {
+      if (error instanceof VoicePollUserError) {
         try { await this.options.store.cancel(poll.id,'start-invalid'); }
         catch { this.retry(poll.id); }
       } else this.retry(poll.id);
       throw error;
     }
     const saved = await this.options.store.get(poll.id);
-    if (!saved?.messageId) throw new PenaltyError('not-ready');
+    if (!saved?.messageId) throw new VoicePollError('not-ready');
     return saved;
   }
-  async vote(request: PenaltyVoteRequest): Promise<boolean> {
+  async vote(request: VoicePollVoteRequest): Promise<boolean> {
     this.guild(request.guildId);
     const poll = await this.options.store.get(request.id);
-    if (!poll || poll.kind !== (request.kind ?? 'penalty') || poll.guildId !== request.guildId || poll.messageId !== request.messageId || poll.textChannelId !== request.textChannelId) throw new PenaltyError('invalid');
-    if (poll.targetId === request.userId) throw new PenaltyUserError('❌ Адресат не може голосувати у власному голосуванні.');
+    if (!poll || poll.kind !== (request.kind ?? 'penalty') || poll.guildId !== request.guildId || poll.messageId !== request.messageId || poll.textChannelId !== request.textChannelId) throw new VoicePollError('invalid');
+    if (poll.targetId === request.userId) throw new VoicePollUserError('❌ Адресат не може голосувати у власному голосуванні.');
     if (this.options.presence.channelFor(request.userId) !== poll.voiceChannelId ||
-      !this.options.presence.humans(poll.voiceChannelId).includes(request.userId)) throw new PenaltyUserError('❌ Голосувати можуть лише люди в початковому голосовому каналі.');
+      !this.options.presence.humans(poll.voiceChannelId).includes(request.userId)) throw new VoicePollUserError('❌ Голосувати можуть лише люди в початковому голосовому каналі.');
     return this.options.store.vote(request);
   }
   async refresh(): Promise<void> {
@@ -97,7 +97,7 @@ export class PenaltyRuntime implements VoicePenalties {
     try {
       const polls = await this.options.store.pending(this.options.guildId);
       for (const poll of polls) this.watch(poll);
-      if (polls.filter(p=>!penaltyOpen(p)).length === 100) this.later('refresh',60_000,()=>{void this.refresh();});
+      if (polls.filter(p=>!voicePollOpen(p)).length === 100) this.later('refresh',60_000,()=>{void this.refresh();});
       this.failures.delete('refresh');
     } catch { this.retry('refresh'); }
   }
@@ -108,7 +108,7 @@ export class PenaltyRuntime implements VoicePenalties {
     const timer = setTimeout(()=>{ this.timers.delete(key); if (!this.stopped) action(); },Math.max(1,delay));
     timer.unref(); this.timers.set(key,timer);
   }
-  private watch(poll: PenaltyPoll) {
+  private watch(poll: VoicePoll) {
     if (this.stopped || poll.publishedAt || poll.messageMissing) return;
     if (poll.status === 'creating') {
       const age = this.now().getTime()-poll.createdAt.getTime();
@@ -131,7 +131,7 @@ export class PenaltyRuntime implements VoicePenalties {
     }
     this.drive(poll.id);
   }
-  private capture(poll: PenaltyPoll) {
+  private capture(poll: VoicePoll) {
     if (this.observations.has(poll.id) || !poll.endsAt) return;
     try { this.observations.set(poll.id,this.options.presence.evidence(poll.voiceChannelId,poll.endsAt,poll.targetId)); }
     catch { this.observations.set(poll.id,null); }
@@ -170,21 +170,21 @@ export class PenaltyRuntime implements VoicePenalties {
         }
         try { poll = await this.options.store.finish(id,this.observations.get(id) ?? null); }
         catch (error) {
-          if (error instanceof PenaltyError && error.code === 'not-due') {
+          if (error instanceof VoicePollError && error.code === 'not-due') {
             this.observations.delete(id);
             this.later(id,250,()=>this.drive(id)); return;
           }
           throw error;
         }
       }
-      if (penaltyOpen(poll) || poll.publishedAt || poll.messageMissing) { this.forget(id); return; }
+      if (voicePollOpen(poll) || poll.publishedAt || poll.messageMissing) { this.forget(id); return; }
       await this.options.store.noteAttempt(id);
       const state = await this.options.transport.inspect(poll);
       if (state !== 'active') await this.options.store.delivered(id,state === 'missing');
       else {
         const frozen = await this.options.store.prepareDelivery(id);
-        if (frozen.publishedAt || frozen.messageMissing || penaltyOpen(frozen)) { this.forget(id); return; }
-        await this.options.transport.edit(frozen,renderPenalty(frozen));
+        if (frozen.publishedAt || frozen.messageMissing || voicePollOpen(frozen)) { this.forget(id); return; }
+        await this.options.transport.edit(frozen,renderVoicePoll(frozen));
         await this.options.store.delivered(id,false);
       }
       this.forget(id);

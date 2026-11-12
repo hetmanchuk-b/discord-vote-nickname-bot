@@ -4,7 +4,8 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "npm run db:generate && tsc",
+    "build": "npm run db:generate && npm run clean && tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "npm run db:generate && tsc --noEmit",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",

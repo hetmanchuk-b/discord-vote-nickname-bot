@@ -1,12 +1,12 @@
 import { ChannelType, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../types.js';
-import { PenaltyError } from './voice-penalty-store.js';
-import type { VoiceVoteKind } from './voice-penalty-store.js';
-import { PenaltyUserError } from './voice-penalty-runtime.js';
+import { VoicePollError } from './voice-poll-store.js';
+import type { VoicePollKind } from './voice-poll-store.js';
+import { VoicePollUserError } from './voice-poll-runtime.js';
 
-export function penaltyFeedback(error: unknown): string {
-  if (error instanceof PenaltyUserError) return error.publicMessage;
-  if (error instanceof PenaltyError) {
+export function voicePollFeedback(error: unknown): string {
+  if (error instanceof VoicePollUserError) return error.publicMessage;
+  if (error instanceof VoicePollError) {
     const messages = {
       'not-participated': '❌ Адресат не має підтвердженої участі в обліку репутації або видалив свої дані.',
       'balance-floor': '❌ Баланс адресата вже досяг мінімуму −500.',
@@ -22,7 +22,7 @@ export function penaltyFeedback(error: unknown): string {
   return '❌ Не вдалося підтвердити дію. Перевірте повідомлення голосування або спробуйте пізніше.';
 }
 
-export function createVoiceVoteCommand(kind: VoiceVoteKind): Command {
+export function createVoicePollCommand(kind: VoicePollKind): Command {
   const reward = kind === 'reward';
   return {
   data: new SlashCommandBuilder().setName(reward ? 'voice-reward' : 'voice-penalty')
@@ -41,15 +41,15 @@ export function createVoiceVoteCommand(kind: VoiceVoteKind): Command {
     }
     await interaction.deferReply({flags:MessageFlags.Ephemeral});
     try {
-      const poll = await interaction.client.voicePenalties.create({guildId:interaction.guildId,textChannelId:interaction.channelId,
+      const poll = await interaction.client.voicePolls.create({guildId:interaction.guildId,textChannelId:interaction.channelId,
         initiatorId:interaction.user.id,targetId:target.id,kind,amount:interaction.options.getInteger('amount',true)});
       return interaction.editReply({content:`${poll.status === 'active' ? '✅ Голосування створено' : reward ? '⌛ Голосування скасовано без нагороди' : '⌛ Голосування скасовано без штрафу'}: https://discord.com/channels/${poll.guildId}/${poll.textChannelId}/${poll.messageId}`,allowedMentions:{parse:[]}});
     } catch (error) {
-      return interaction.editReply({content:penaltyFeedback(error),allowedMentions:{parse:[]}});
+      return interaction.editReply({content:voicePollFeedback(error),allowedMentions:{parse:[]}});
     }
   },
   };
 }
 
-export const voicePenaltyCommand = createVoiceVoteCommand('penalty');
-export const voiceRewardCommand = createVoiceVoteCommand('reward');
+export const voicePenaltyCommand = createVoicePollCommand('penalty');
+export const voiceRewardCommand = createVoicePollCommand('reward');

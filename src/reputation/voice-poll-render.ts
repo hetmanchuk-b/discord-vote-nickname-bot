@@ -1,14 +1,15 @@
 import { Buffer } from 'node:buffer';
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import type { MessageEditOptions } from 'discord.js';
-import type { PenaltyPoll } from './voice-penalty-store.js';
+import type { VoicePoll } from './voice-poll-store.js';
 
+// Existing Discord identifiers are public protocol, not internal type names.
 export const PENALTY_BUTTON_PREFIX = 'voice-penalty:';
 export const REWARD_BUTTON_PREFIX = 'voice-reward:';
-export const penaltyMarker = (id: string, final: boolean) => `VP:${id}:${final ? 'final' : 'active'}`;
-export type PenaltyPayload = Pick<MessageEditOptions, 'content' | 'embeds' | 'components' | 'allowedMentions' | 'attachments' | 'files'>;
+export const voicePollMarker = (id: string, final: boolean) => `VP:${id}:${final ? 'final' : 'active'}`;
+export type VoicePollPayload = Pick<MessageEditOptions, 'content' | 'embeds' | 'components' | 'allowedMentions' | 'attachments' | 'files'>;
 
-export function renderPenalty(poll: PenaltyPoll): PenaltyPayload {
+export function renderVoicePoll(poll: VoicePoll): VoicePollPayload {
   const active = poll.status === 'active' || poll.status === 'creating';
   const reward = poll.kind === 'reward';
   const action = reward ? 'Нагороду' : 'Штраф';
@@ -24,7 +25,7 @@ export function renderPenalty(poll: PenaltyPoll): PenaltyPayload {
       'У разі невдачі буде оприлюднено лише тих, чиї голоси «Ні» зараховано.\n' +
       timing;
   } else if (poll.status === 'succeeded') {
-    description = `<@${poll.targetId}> ${reward ? 'отримав' : 'втратив'} **${poll.actualFine}** балів репутації.`;
+    description = `<@${poll.targetId}> ${reward ? 'отримав' : 'втратив'} **${poll.appliedAmount}** балів репутації.`;
   } else if (poll.status === 'failed') {
     description = `Не вдалося досягти одностайності щодо ${reward ? 'нагороди' : 'штрафу'} для <@${poll.targetId}>.`;
     if (poll.noVoterIds.length) description += `\n**Проголосували «Ні»:** ${poll.noVoterIds.slice(0,60).map(id=>`<@${id}>`).join(', ')}`;
@@ -42,7 +43,7 @@ export function renderPenalty(poll: PenaltyPoll): PenaltyPayload {
   return {
     content: '', allowedMentions: { parse: [] }, attachments: [], files,
     embeds: [new EmbedBuilder().setColor(active ? 0xFEE75C : poll.status === 'succeeded' ? reward ? 0x57F287 : 0xED4245 : 0x5865F2)
-      .setDescription(description).setFooter({ text: penaltyMarker(poll.id,!active) })],
+      .setDescription(description).setFooter({ text: voicePollMarker(poll.id,!active) })],
     components: active ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`${prefix}${poll.id}:yes`).setLabel('Так').setStyle(reward ? ButtonStyle.Success : ButtonStyle.Danger),
       new ButtonBuilder().setCustomId(`${prefix}${poll.id}:no`).setLabel('Ні').setStyle(ButtonStyle.Secondary),

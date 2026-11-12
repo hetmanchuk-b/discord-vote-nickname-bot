@@ -5,8 +5,8 @@ import { shuffleButtons } from './shuffle.js';
 import { reputationButtons } from './reputation.js';
 import { handleReputationPage } from './reputation-report.js';
 import { REPORT_PAGE_PREFIX } from '../reputation/report-render.js';
-import { PENALTY_BUTTON_PREFIX, REWARD_BUTTON_PREFIX } from '../reputation/voice-penalty-render.js';
-import { handleVoicePenalty } from './voice-penalty.js';
+import { PENALTY_BUTTON_PREFIX, REWARD_BUTTON_PREFIX } from '../reputation/voice-poll-render.js';
+import { handleVoicePoll } from './voice-poll.js';
 
 // Register additional button groups here; the event dispatcher stays unchanged.
 const handlers: ReadonlyMap<string, ButtonHandler> = new Map(Object.entries({
@@ -17,7 +17,7 @@ const handlers: ReadonlyMap<string, ButtonHandler> = new Map(Object.entries({
 export async function handleButton(interaction: ButtonInteraction) {
   const handler = handlers.get(interaction.customId) ??
     (interaction.customId.startsWith(REPORT_PAGE_PREFIX) ? handleReputationPage :
-      (interaction.customId.startsWith(PENALTY_BUTTON_PREFIX) || interaction.customId.startsWith(REWARD_BUTTON_PREFIX)) ? handleVoicePenalty : undefined);
+      (interaction.customId.startsWith(PENALTY_BUTTON_PREFIX) || interaction.customId.startsWith(REWARD_BUTTON_PREFIX)) ? handleVoicePoll : undefined);
   if (!handler) {
     console.log(`Unhandled button interaction: ${interaction.customId}`);
     return;

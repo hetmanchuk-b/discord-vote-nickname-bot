@@ -1,19 +1,19 @@
 import { ChannelType, DiscordAPIError, Events, PermissionFlagsBits } from 'discord.js';
 import type { Client, VoiceState } from 'discord.js';
-import { createPenaltyStore, PENALTY_DEADLINE_GRACE_MS } from './voice-penalty-store.js';
-import type { PenaltyPoll } from './voice-penalty-store.js';
-import { PenaltyRuntime, PenaltyUserError } from './voice-penalty-runtime.js';
-import type { PenaltyMessage, PenaltyPresence, PenaltyTransport } from './voice-penalty-runtime.js';
-import { penaltyMarker, renderPenalty } from './voice-penalty-render.js';
+import { createVoicePollStore, VOICE_POLL_DEADLINE_GRACE_MS } from './voice-poll-store.js';
+import type { VoicePoll } from './voice-poll-store.js';
+import { VoicePollRuntime, VoicePollUserError } from './voice-poll-runtime.js';
+import type { VoicePollMessage, VoicePollPresence, VoicePollTransport } from './voice-poll-runtime.js';
+import { voicePollMarker, renderVoicePoll } from './voice-poll-render.js';
 
 interface Transition { at: number; id: string; from: string | null; to: string | null; human: boolean | undefined }
-export class PenaltyVoicePresence implements PenaltyPresence {
+export class DiscordVoicePollPresence implements VoicePollPresence {
   private connectedAt?: number;
   private transitions: Transition[] = [];
   constructor(private readonly client: Client, private readonly guildId: string | undefined, private readonly now = () => new Date()) {}
   private guild() {
     const guild = this.guildId ? this.client.guilds.cache.get(this.guildId) : undefined;
-    if (!guild?.available || !this.client.isReady() || this.connectedAt === undefined) throw new PenaltyUserError('❌ Не вдалося підтвердити стан голосових каналів. Спробуйте після відновлення Discord.');
+    if (!guild?.available || !this.client.isReady() || this.connectedAt === undefined) throw new VoicePollUserError('❌ Не вдалося підтвердити стан голосових каналів. Спробуйте після відновлення Discord.');
     return guild;
   }
   online() {
@@ -26,7 +26,7 @@ export class PenaltyVoicePresence implements PenaltyPresence {
     const now = this.now().getTime();
     const member = newState.member ?? oldState.member;
     this.transitions.push({ at: now, id: newState.id, from: oldState.channelId, to: newState.channelId, human: member ? !member.user.bot : undefined });
-    this.transitions = this.transitions.filter(item=>item.at >= now - PENALTY_DEADLINE_GRACE_MS);
+    this.transitions = this.transitions.filter(item=>item.at >= now - VOICE_POLL_DEADLINE_GRACE_MS);
     if (this.transitions.length > 5000) { this.transitions = []; this.connectedAt = now; }
   }
   channelFor(userId: string) {
@@ -37,20 +37,20 @@ export class PenaltyVoicePresence implements PenaltyPresence {
   private members(channelId: string, ignoreUserId?: string): string[] {
     const guild = this.guild();
     const channel = guild.channels.cache.get(channelId);
-    if (channel?.type !== ChannelType.GuildVoice) throw new PenaltyUserError('❌ Потрібен звичайний голосовий канал.');
+    if (channel?.type !== ChannelType.GuildVoice) throw new VoicePollUserError('❌ Потрібен звичайний голосовий канал.');
     const me = guild.members.me;
-    if (!me || !channel.permissionsFor(me)?.has(PermissionFlagsBits.ViewChannel)) throw new PenaltyUserError('❌ Боту потрібен View Channel у початковому голосовому каналі.');
+    if (!me || !channel.permissionsFor(me)?.has(PermissionFlagsBits.ViewChannel)) throw new VoicePollUserError('❌ Боту потрібен View Channel у початковому голосовому каналі.');
     const ids: string[] = [];
     for (const state of guild.voiceStates.cache.values()) {
       if (state.channelId !== channelId || state.id === ignoreUserId) continue;
-      if (!state.member) throw new PenaltyUserError('❌ Дані про учасників каналу ще недоступні.');
+      if (!state.member) throw new VoicePollUserError('❌ Дані про учасників каналу ще недоступні.');
       if (!state.member.user.bot) ids.push(state.id);
     }
     return ids;
   }
   evidence(channelId: string, deadline: Date, ignoreUserId?: string) {
     const at = this.now();
-    if (this.connectedAt === undefined || this.connectedAt > deadline.getTime() || at < deadline || at.getTime() - deadline.getTime() > PENALTY_DEADLINE_GRACE_MS) return null;
+    if (this.connectedAt === undefined || this.connectedAt > deadline.getTime() || at < deadline || at.getTime() - deadline.getTime() > VOICE_POLL_DEADLINE_GRACE_MS) return null;
     try {
       const ids = new Set(this.members(channelId,ignoreUserId));
       // Undo observed changes AFTER the deadline, so a late join/leave during
@@ -68,27 +68,27 @@ export class PenaltyVoicePresence implements PenaltyPresence {
     } catch { return null; }
   }
 }
-class PenaltyMissingMessage extends Error {}
-const missing = (error: unknown) => error instanceof PenaltyMissingMessage || error instanceof DiscordAPIError && (error.code === 10003 || error.code === 10008);
-export function createPenaltyTransport(client: Client, guildId: string): PenaltyTransport {
-  async function channel(poll: PenaltyPoll) {
-    if (poll.guildId !== guildId) throw new Error('Penalty server mismatch.');
+class MissingVoicePollMessage extends Error {}
+const missing = (error: unknown) => error instanceof MissingVoicePollMessage || error instanceof DiscordAPIError && (error.code === 10003 || error.code === 10008);
+export function createVoicePollTransport(client: Client, guildId: string): VoicePollTransport {
+  async function channel(poll: VoicePoll) {
+    if (poll.guildId !== guildId) throw new Error('Voice poll server mismatch.');
     const guild = client.guilds.cache.get(guildId);
-    if (!guild?.available) throw new Error('Penalty server unavailable.');
+    if (!guild?.available) throw new Error('Voice poll server unavailable.');
     const channel = await guild.channels.fetch(poll.textChannelId);
-    if (!channel) throw new PenaltyMissingMessage();
-    if ((channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildVoice) || channel.guildId !== guildId) throw new Error('Invalid penalty destination.');
+    if (!channel) throw new MissingVoicePollMessage();
+    if ((channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildVoice) || channel.guildId !== guildId) throw new Error('Invalid voice poll destination.');
     return channel;
   }
-  async function writable(poll: PenaltyPoll) {
+  async function writable(poll: VoicePoll) {
     const destination = await channel(poll);
     const me = destination.guild.members.me ?? await destination.guild.members.fetchMe();
     if (!destination.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.EmbedLinks,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles])) {
-      throw new PenaltyUserError('❌ Боту потрібні View Channel, Send Messages, Embed Links, Read Message History та Attach Files у каналі голосування.');
+      throw new VoicePollUserError('❌ Боту потрібні View Channel, Send Messages, Embed Links, Read Message History та Attach Files у каналі голосування.');
     }
     return destination;
   }
-  const find = async (poll: PenaltyPoll): Promise<PenaltyMessage | null> => {
+  const find = async (poll: VoicePoll): Promise<VoicePollMessage | null> => {
     const destination = await channel(poll);
     let before: string | undefined;
     for (let page=0;page<2;page++) {
@@ -110,10 +110,10 @@ export function createPenaltyTransport(client: Client, guildId: string): Penalty
       for (const state of guild.voiceStates.cache.values()) {
         if (state.channelId !== poll.voiceChannelId || state.member?.user.bot) continue;
         if (!state.member || !destination.permissionsFor(state.member)?.has(PermissionFlagsBits.ViewChannel)) {
-          throw new PenaltyUserError('❌ Канал голосування має бути видимим усім людям у початковому голосовому каналі.');
+          throw new VoicePollUserError('❌ Канал голосування має бути видимим усім людям у початковому голосовому каналі.');
         }
       }
-      const payload=renderPenalty(poll);
+      const payload=renderVoicePoll(poll);
       beforeSend?.();
       const message=await destination.send({embeds:payload.embeds,components:payload.components,allowedMentions:{parse:[]},nonce:poll.id.replaceAll('-','').slice(0,24),enforceNonce:true});
       return {id:message.id,at:message.createdAt};
@@ -122,27 +122,27 @@ export function createPenaltyTransport(client: Client, guildId: string): Penalty
       if (!poll.messageId) return 'missing';
       try {
         const message=await (await channel(poll)).messages.fetch(poll.messageId);
-        if (message.author.id!==client.user?.id) throw new Error('Penalty message author mismatch.');
-        if (message.embeds.some(embed=>embed.footer?.text===penaltyMarker(poll.id,true))) return 'final';
-        if (message.embeds.some(embed=>embed.footer?.text===penaltyMarker(poll.id,false))) return 'active';
-        throw new Error('Penalty message marker mismatch.');
+        if (message.author.id!==client.user?.id) throw new Error('Voice poll message author mismatch.');
+        if (message.embeds.some(embed=>embed.footer?.text===voicePollMarker(poll.id,true))) return 'final';
+        if (message.embeds.some(embed=>embed.footer?.text===voicePollMarker(poll.id,false))) return 'active';
+        throw new Error('Voice poll message marker mismatch.');
       } catch(error) { if(missing(error))return 'missing';throw error; }
     },
     async edit(poll,payload) {
       if (!poll.messageId) return;
       const destination=await writable(poll);
       const message=await destination.messages.fetch(poll.messageId);
-      if(message.author.id!==client.user?.id || !message.embeds.some(embed=>embed.footer?.text.startsWith(`VP:${poll.id}:`))) throw new Error('Penalty message identity mismatch.');
+      if(message.author.id!==client.user?.id || !message.embeds.some(embed=>embed.footer?.text.startsWith(`VP:${poll.id}:`))) throw new Error('Voice poll message identity mismatch.');
       await destination.messages.edit(poll.messageId,payload);
     },
   };
 }
 
-export function attachVoicePenalties(client: Client, beforeCreate?: () => Promise<void>) {
+export function attachVoicePolls(client: Client, beforeCreate?: () => Promise<void>) {
   const configured=process.env.REPUTATION_GUILD_ID?.trim();
   const guildId=configured && /^\d{17,20}$/.test(configured) ? configured : undefined;
-  const presence=new PenaltyVoicePresence(client,guildId);
-  const runtime=new PenaltyRuntime({guildId,presence,beforeCreate,store:createPenaltyStore(),transport:createPenaltyTransport(client,guildId ?? '')});
+  const presence=new DiscordVoicePollPresence(client,guildId);
+  const runtime=new VoicePollRuntime({guildId,presence,beforeCreate,store:createVoicePollStore(),transport:createVoicePollTransport(client,guildId ?? '')});
   const resume=()=>{presence.online();void runtime.refresh();};
   const observe=(oldState: VoiceState,newState: VoiceState)=>presence.observe(oldState,newState);
   const offline=(_event:unknown,shardId:number)=>{if(guildId && client.guilds.cache.get(guildId)?.shardId===shardId)presence.offline();};

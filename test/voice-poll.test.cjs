@@ -3,18 +3,18 @@ const {test}=require('node:test');
 const {structuredClone}=globalThis;
 const {setImmediate}=require('node:timers/promises');
 const {Collection,ChannelType,MessageFlags}=require('discord.js');
-const {PenaltyRuntime}=require('../dist/reputation/voice-penalty-runtime.js');
-const {PenaltyVoicePresence,createPenaltyTransport}=require('../dist/reputation/voice-penalty-discord.js');
-const {renderPenalty}=require('../dist/reputation/voice-penalty-render.js');
-const {voicePenaltyCommand,voiceRewardCommand}=require('../dist/reputation/voice-penalty-command.js');
+const {VoicePollRuntime}=require('../dist/reputation/voice-poll-runtime.js');
+const {DiscordVoicePollPresence,createVoicePollTransport}=require('../dist/reputation/voice-poll-discord.js');
+const {renderVoicePoll}=require('../dist/reputation/voice-poll-render.js');
+const {voicePenaltyCommand,voiceRewardCommand}=require('../dist/reputation/voice-poll-command.js');
 const {handleButton}=require('../dist/buttons/index.js');
-const {handleVoicePenalty}=require('../dist/buttons/voice-penalty.js');
+const {handleVoicePoll}=require('../dist/buttons/voice-poll.js');
 const {handleChatInput}=require('../dist/interactions/chat-input.js');
 const id='11111111-1111-4111-8111-111111111111';
 const guildId='999999999999999999',target='111111111111111111',caller='222222222222222222',other='333333333333333333',fourth='444444444444444444';
 const origin=Date.parse('2026-11-11T12:00:00Z');
 const initial=()=>({id,guildId,kind:'penalty',targetId:target,initiatorId:caller,voiceChannelId:'voice',textChannelId:'text',amount:50,
-  status:'creating',messageId:null,createdAt:new Date(origin),startedAt:null,endsAt:null,closedAt:null,actualFine:0,balanceAfter:null,noVoterIds:[],publishing:false,publishedAt:null,messageMissing:false});
+  status:'creating',messageId:null,createdAt:new Date(origin),startedAt:null,endsAt:null,closedAt:null,appliedAmount:0,balanceAfter:null,noVoterIds:[],publishing:false,publishedAt:null,messageMissing:false});
 function runtimeFixture(t,saved=null,beforeCreate){
   let at=origin;let poll=saved?structuredClone(saved):null;let dbDown=false;let lostAck=false;let verification=true;let found=null;
   const timers=[],evidence=[],edits=[],votes=[];let reserves=0,publishes=0,finished=0;
@@ -30,7 +30,7 @@ function runtimeFixture(t,saved=null,beforeCreate){
     cancel:async(_id,reason)=>{poll.status='cancelled';poll.reason=reason;poll.messageMissing=!poll.messageId;return structuredClone(poll);},
     vote:async request=>{votes.push(request);return request.yes;},
     finish:async(_id,observation)=>{evidence.push(structuredClone(observation));if(dbDown)throw new Error('offline');finished++;
-      poll.status=observation?'succeeded':'cancelled';poll.actualFine=observation?50:0;return structuredClone(poll);},
+      poll.status=observation?'succeeded':'cancelled';poll.appliedAmount=observation?50:0;return structuredClone(poll);},
     noteAttempt:async()=>{},prepareDelivery:async()=>{poll.publishing=true;return structuredClone(poll);},
     delivered:async(_id,missing)=>{poll.publishing=false;poll.messageMissing=missing;if(!missing)poll.publishedAt=new Date(at);},
   };
@@ -39,7 +39,7 @@ function runtimeFixture(t,saved=null,beforeCreate){
   let shown='active';
   const transport={publish:async()=>{publishes++;found={id:'message',at:new Date(at)};return found;},find:async()=>found,
     inspect:async()=>shown,edit:async(_poll,payload)=>{edits.push(payload);shown='final';if(lostAck){lostAck=false;throw new Error('lost acknowledgement');}}};
-  const runtime=new PenaltyRuntime({guildId,store,transport,presence,beforeCreate,now:()=>new Date(at)});
+  const runtime=new VoicePollRuntime({guildId,store,transport,presence,beforeCreate,now:()=>new Date(at)});
   return {runtime,humans,timers,evidence,edits,votes,store,
     at:ms=>{at=origin+ms;},dbDown:value=>{dbDown=value;},verify:value=>{verification=value;},loseAck:()=>{lostAck=true;},
     poll:()=>poll,missing:()=>{shown='missing';},reserves:()=>reserves,publishes:()=>publishes,finished:()=>finished,
@@ -91,7 +91,7 @@ test('restart before deadline resumes the saved poll without publishing a duplic
 test('restart after an unverifiable deadline cancels without a fine',async t=>{
   const saved={...initial(),status:'active',messageId:'message',endsAt:new Date(origin+120000)};
   const f=runtimeFixture(t,saved);f.at(130000);f.verify(false);await f.runtime.refresh();await settle();
-  assert.equal(f.poll().status,'cancelled');assert.equal(f.poll().actualFine,0);await f.runtime.stop();
+  assert.equal(f.poll().status,'cancelled');assert.equal(f.poll().appliedAmount,0);await f.runtime.stop();
 });
 
 test('lost final Discord acknowledgement reconciles the same message without another fine',async t=>{
@@ -113,7 +113,7 @@ function presenceFixture(){
   const states=new Map([target,caller,other,fourth].map(id=>[id,{id,channelId:'voice',channel:voice,member:{user:{bot:false}}}]));
   const guild={id:guildId,available:true,members:{me:{id:'bot'}},channels:{cache:new Map([['voice',voice]])},voiceStates:{cache:states}};
   const client={isReady:()=>ready,guilds:{cache:new Map([[guildId,guild]])}};
-  const presence=new PenaltyVoicePresence(client,guildId,()=>new Date(at));presence.online();
+  const presence=new DiscordVoicePollPresence(client,guildId,()=>new Date(at));presence.online();
   return {presence,states,guild,at:ms=>{at=origin+ms;},ready:value=>{ready=value;}};
 }
 
@@ -148,13 +148,13 @@ test('bots are excluded and losing access to the original voice channel prevents
 });
 
 test('rendering never shows vote counts or Yes identities and only exposes No identities on failure',()=>{
-  const poll=initial();const opened=renderPenalty(poll);const text=JSON.stringify(opened);
+  const poll=initial();const opened=renderVoicePoll(poll);const text=JSON.stringify(opened);
   assert.equal(opened.embeds[0].toJSON().fields,undefined);assert.equal(opened.components[0].components.length,2);
   assert.doesNotMatch(text,/noVoterIds|кількість|votes/);
-  const failed=renderPenalty({...poll,status:'failed',noVoterIds:[other]});assert.match(failed.embeds[0].toJSON().description,new RegExp(other));assert.doesNotMatch(failed.embeds[0].toJSON().description,new RegExp(caller));
-  const success=renderPenalty({...poll,status:'succeeded',actualFine:20,noVoterIds:[other]});assert.equal(success.embeds[0].toJSON().description,`<@${target}> втратив **20** балів репутації.`);
+  const failed=renderVoicePoll({...poll,status:'failed',noVoterIds:[other]});assert.match(failed.embeds[0].toJSON().description,new RegExp(other));assert.doesNotMatch(failed.embeds[0].toJSON().description,new RegExp(caller));
+  const success=renderVoicePoll({...poll,status:'succeeded',appliedAmount:20,noVoterIds:[other]});assert.equal(success.embeds[0].toJSON().description,`<@${target}> втратив **20** балів репутації.`);
   assert.deepEqual(success.allowedMentions,{parse:[]});
-  const large=renderPenalty({...poll,status:'failed',noVoterIds:Array.from({length:100},(_,i)=>String(100000000000000000n+BigInt(i)))});
+  const large=renderVoicePoll({...poll,status:'failed',noVoterIds:Array.from({length:100},(_,i)=>String(100000000000000000n+BigInt(i)))});
   assert.ok(large.embeds[0].toJSON().description.length<=4096);assert.equal(large.files.length,1);
 });
 
@@ -162,7 +162,7 @@ test('command uses ephemeral validation/confirmation and exposes exactly the thr
   const data=voicePenaltyCommand.data.toJSON();assert.equal(data.name,'voice-penalty');assert.equal(data.dm_permission,false);assert.equal(voicePenaltyCommand.cooldown,0);
   assert.deepEqual(data.options[1].choices.map(item=>item.value),[10,50,100]);
   const replies=[],calls=[];const interaction={guildId,channel:{type:ChannelType.GuildText},channelId:'text',user:{id:caller,bot:false},
-    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>50},client:{voicePenalties:{create:async request=>{calls.push(request);return {...initial(),status:'active',messageId:'message'};}}},
+    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>50},client:{voicePolls:{create:async request=>{calls.push(request);return {...initial(),status:'active',messageId:'message'};}}},
     deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
   await voicePenaltyCommand.execute(interaction);assert.equal(replies[0].flags,MessageFlags.Ephemeral);assert.equal(calls[0].amount,50);
   interaction.options.getUser=()=>({id:caller,bot:false});await voicePenaltyCommand.execute(interaction);assert.equal(replies.at(-1).flags,MessageFlags.Ephemeral);assert.equal(calls.length,1);
@@ -170,10 +170,10 @@ test('command uses ephemeral validation/confirmation and exposes exactly the thr
 
 test('button confirmations are private and changed selections pass the same poll/message identity',async()=>{
   const calls=[],replies=[];const interaction={id:'200000000000000001',customId:`voice-penalty:${id}:yes`,guildId,channelId:'text',message:{id:'message'},user:{id:caller,bot:false},
-    client:{voicePenalties:{vote:async request=>{calls.push(request);return request.yes;}}},deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
-  await handleVoicePenalty(interaction);interaction.customId=`voice-penalty:${id}:no`;await handleVoicePenalty(interaction);
+    client:{voicePolls:{vote:async request=>{calls.push(request);return request.yes;}}},deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
+  await handleVoicePoll(interaction);interaction.customId=`voice-penalty:${id}:no`;await handleVoicePoll(interaction);
   assert.deepEqual(calls.map(call=>call.yes),[true,false]);assert.equal(calls[0].messageId,'message');assert.equal(replies[0].flags,MessageFlags.Ephemeral);
-  interaction.customId='voice-penalty:invalid:yes';await handleVoicePenalty(interaction);assert.equal(calls.length,2);
+  interaction.customId='voice-penalty:invalid:yes';await handleVoicePoll(interaction);assert.equal(calls.length,2);
 });
 
 test('Discord transport adopts the same marker, validates authors, and reports a vanished channel as missing',async()=>{
@@ -184,12 +184,12 @@ test('Discord transport adopts the same marker, validates authors, and reports a
       const message={id:'message',createdAt:new Date(origin),author:{id:'bot'},embeds:payload.embeds.map(embed=>embed.toJSON())};messages.set(message.id,message);return message;}};
   guild.channels={fetch:async()=>destination};
   const client={user:{id:'bot'},guilds:{cache:new Map([[guildId,guild]])}};
-  const transport=createPenaltyTransport(client,guildId);const poll=initial();
+  const transport=createVoicePollTransport(client,guildId);const poll=initial();
   const sent=await transport.publish(poll,()=>events.push('check-voice'));
   assert.deepEqual(events,['check-voice','send']);assert.equal(sent.at.getTime(),origin);
   const adopted=await transport.find(poll);assert.equal(adopted.id,sent.id);
   const active={...poll,status:'active',messageId:'message'};assert.equal(await transport.inspect(active),'active');
-  messages.get('message').author.id='different-bot';await assert.rejects(transport.edit(active,renderPenalty(active)));assert.equal(events.includes('edit'),false);
+  messages.get('message').author.id='different-bot';await assert.rejects(transport.edit(active,renderVoicePoll(active)));assert.equal(events.includes('edit'),false);
   destination.permissionsFor=member=>({has:()=>member.id!==other});
   await assert.rejects(transport.publish({...poll,id:'22222222-2222-4222-8222-222222222222'}));
   assert.equal(events.filter(event=>event==='send').length,1); // No hidden-channel poll.
@@ -200,19 +200,19 @@ test('voice-reward command shares eligibility and choices but reserves a reward 
   const data=voiceRewardCommand.data.toJSON();assert.equal(data.name,'voice-reward');assert.equal(data.dm_permission,false);assert.equal(voiceRewardCommand.cooldown,0);
   assert.deepEqual(data.options[1].choices.map(choice=>choice.value),[10,50,100]);
   const replies=[],calls=[];const interaction={guildId,channel:{type:ChannelType.GuildText},channelId:'text',user:{id:caller,bot:false},
-    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>100},client:{voicePenalties:{create:async request=>{calls.push(request);return {...initial(),kind:'reward',status:'active',messageId:'message'};}}},
+    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>100},client:{voicePolls:{create:async request=>{calls.push(request);return {...initial(),kind:'reward',status:'active',messageId:'message'};}}},
     deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
   await voiceRewardCommand.execute(interaction);assert.equal(calls[0].kind,'reward');assert.equal(calls[0].amount,100);assert.equal(replies[0].flags,MessageFlags.Ephemeral);
   interaction.options.getUser=()=>({id:caller,bot:false});await voiceRewardCommand.execute(interaction);assert.equal(calls.length,1);assert.equal(replies.at(-1).flags,MessageFlags.Ephemeral);
 });
 
 test('reward rendering uses reward buttons and actual credited amount without exposing Yes identities or totals',()=>{
-  const poll={...initial(),kind:'reward'};const open=renderPenalty(poll);
+  const poll={...initial(),kind:'reward'};const open=renderVoicePoll(poll);
   assert.match(open.embeds[0].toJSON().description,/нагороду/);assert.equal(open.components[0].components[0].data.custom_id,`voice-reward:${id}:yes`);
-  const success=renderPenalty({...poll,status:'succeeded',actualFine:20,noVoterIds:[other]});
+  const success=renderVoicePoll({...poll,status:'succeeded',appliedAmount:20,noVoterIds:[other]});
   assert.equal(success.embeds[0].toJSON().description,`<@${target}> отримав **20** балів репутації.`);assert.deepEqual(success.allowedMentions,{parse:[]});assert.equal(success.components.length,0);
-  const failed=renderPenalty({...poll,status:'failed',noVoterIds:[other]});assert.match(failed.embeds[0].toJSON().description,/щодо нагороди/);assert.match(failed.embeds[0].toJSON().description,new RegExp(other));assert.doesNotMatch(failed.embeds[0].toJSON().description,new RegExp(caller));
-  const cancelled=renderPenalty({...poll,status:'cancelled',reason:'balance-ceiling'});assert.match(cancelled.embeds[0].toJSON().description,/5 000/);
+  const failed=renderVoicePoll({...poll,status:'failed',noVoterIds:[other]});assert.match(failed.embeds[0].toJSON().description,/щодо нагороди/);assert.match(failed.embeds[0].toJSON().description,new RegExp(other));assert.doesNotMatch(failed.embeds[0].toJSON().description,new RegExp(caller));
+  const cancelled=renderVoicePoll({...poll,status:'cancelled',reason:'balance-ceiling'});assert.match(cancelled.embeds[0].toJSON().description,/5 000/);
 });
 
 test('reward polls use the existing durable runtime and final presence workflow',async t=>{
@@ -224,7 +224,7 @@ test('reward polls use the existing durable runtime and final presence workflow'
 
 test('reward button routing preserves private changeable votes and binds the reward kind',async()=>{
   const calls=[],replies=[];const interaction={id:'200000000000000001',customId:`voice-reward:${id}:yes`,guildId,channelId:'text',message:{id:'message'},user:{id:caller,bot:false},
-    client:{voicePenalties:{vote:async request=>{calls.push(request);return request.yes;}}},deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
+    client:{voicePolls:{vote:async request=>{calls.push(request);return request.yes;}}},deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
   await handleButton(interaction);interaction.customId=`voice-reward:${id}:no`;await handleButton(interaction);
   assert.deepEqual(calls.map(call=>[call.kind,call.id,call.yes]),[['reward',id,true],['reward',id,false]]);assert.equal(replies[0].flags,MessageFlags.Ephemeral);
 });

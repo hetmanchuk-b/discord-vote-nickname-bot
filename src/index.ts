@@ -7,7 +7,7 @@ import { disconnectReputationDatabase } from './reputation/database.js';
 import { attachVoiceTracking } from './reputation/voice-tracking.js';
 import { createMemberReputation } from './reputation/member-reputation.js';
 import { createReportNavigation } from './reputation/reporting.js';
-import { attachVoicePenalties } from './reputation/voice-penalty-discord.js';
+import { attachVoicePolls } from './reputation/voice-poll-discord.js';
 
 const { token } = loadConfig();
 const client = new Client({
@@ -28,14 +28,14 @@ client.shuffleSessions = new Collection();
 client.once(ready.name, ready.execute);
 client.on(interactionCreate.name, interactionCreate.execute);
 const voiceTracking = attachVoiceTracking(client);
-const voicePenalties = attachVoicePenalties(client, () => voiceTracking.tracker?.checkpoint() ?? Promise.resolve());
-client.voicePenalties = voicePenalties.runtime;
+const voicePolls = attachVoicePolls(client, () => voiceTracking.tracker?.checkpoint() ?? Promise.resolve());
+client.voicePolls = voicePolls.runtime;
 client.reputationReports = createReportNavigation(async (guildId, channelId) => {
   if (voiceTracking.guildId === guildId) await voiceTracking.reporting?.channelChanged(channelId);
 });
 client.reputation = createMemberReputation({
   getTracker: guildId => voiceTracking.guildId === guildId ? voiceTracking.tracker : undefined,
-  onDeleted: () => voicePenalties.runtime.refresh(),
+  onDeleted: () => voicePolls.runtime.refresh(),
 });
 
 let shuttingDown = false;
@@ -43,7 +43,7 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   try {
-    const results = await Promise.allSettled([voiceTracking.stop(), voicePenalties.stop()]);
+    const results = await Promise.allSettled([voiceTracking.stop(), voicePolls.stop()]);
     if (results.some(result => result.status === 'rejected')) throw new Error('Reputation shutdown incomplete.');
   } catch {
     console.error('Could not flush voice tracking during shutdown.');

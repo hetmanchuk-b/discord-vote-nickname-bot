@@ -10,7 +10,7 @@ import type {
 
 import type { ReputationMembers } from './reputation/member-reputation.js';
 import type { ReputationReports } from './reputation/reporting.js';
-import type { VoicePenalties } from './reputation/voice-penalty-runtime.js';
+import type { VoicePolls } from './reputation/voice-poll-runtime.js';
 
 export interface Command {
   data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder;
@@ -44,7 +44,7 @@ declare module 'discord.js' {
     shuffleSessions: Collection<string, ShuffleSession>;
     reputation: ReputationMembers;
     reputationReports: ReputationReports;
-    voicePenalties: VoicePenalties;
+    voicePolls: VoicePolls;
   }
 }
 
