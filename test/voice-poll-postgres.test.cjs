@@ -17,7 +17,7 @@ async function fixture(callback){
   try{
     await db.reputationGuild.create({data:{guildId}});
     await db.reputationMember.create({data:{guildId,userId:target,hasParticipated:true,balance:100}});
-    const request={guildId,targetId:target,initiatorId:caller,voiceChannelId:'555555555555555555',textChannelId:'666666666666666666',amount:50};
+    const request={guildId,targetId:target,initiatorId:caller,voiceChannelId:'555555555555555555',textChannelId:'666666666666666666',amount:50,proposalReason:'Тестова причина'};
     await callback({db,guildId,store,tracking,request});
   }finally{try{
     await db.voiceReputationPoll.deleteMany({where:{guildId}});
@@ -262,6 +262,69 @@ test('erasure cancels a reward, and daily settlement serializes with a reward wi
   const next=await f.store.activate(reserved.id,String(BigInt(f.guildId)+1n),at,{at,userIds:[target,caller,other,fourth]});await vote(f,next,caller,true);
   const snapshot=await expire(f,next,[caller]);await Promise.all([f.store.finish(next.id,snapshot),createSettlementStore(()=>f.db).settleNextClosedDay(f.guildId,new Date())]);
   assert.equal(await balance(f),51);
+}));
+
+for(const kind of ['penalty','reward']){
+  test(`${kind} reason is normalized, durable across restart, and retained with an exactly-once success`,options,async()=>fixture(async f=>{
+    f.request.proposalReason='  Допомога команді\nз поясненням  ';
+    const poll=await active(f,50,kind);await vote(f,poll,caller,true);
+    const restarted=createVoicePollStore(()=>f.db);
+    assert.equal((await restarted.get(poll.id)).proposalReason,'Допомога команді\nз поясненням');
+    const evidence=await expire(f,poll,[caller]);
+    const result=await restarted.finish(poll.id,evidence);
+    assert.equal(result.proposalReason,'Допомога команді\nз поясненням');
+    assert.equal(result.status,'succeeded');
+    assert.equal((await restarted.finish(poll.id,null)).proposalReason,result.proposalReason);
+    assert.equal(await balance(f),kind==='penalty'?50:150);
+  }));
+  test(`${kind} failure discards the proposal reason but retains eligible veto identities`,options,async()=>fixture(async f=>{
+    const poll=await active(f,50,kind);await vote(f,poll,caller,true);await vote(f,poll,other,false);
+    const result=await f.store.finish(poll.id,await expire(f,poll,[caller,other]));
+    assert.equal(result.status,'failed');assert.equal(result.proposalReason,null);
+    assert.deepEqual(result.noVoterIds,[other]);assert.equal(await balance(f),100);
+  }));
+}
+
+test('missing/blank/oversized reasons cannot reserve polls or change balances',options,async()=>fixture(async f=>{
+  for(const proposalReason of [null,undefined,'',' \t\n','x'.repeat(1001)]){
+    await assert.rejects(f.store.reserve({...f.request,proposalReason}),error=>error.code==='invalid-reason');
+  }
+  assert.equal(await f.db.voiceReputationPoll.count({where:{guildId:f.guildId}}),0);
+  assert.equal(await balance(f),100);
+}));
+
+test('the database rejects empty or whitespace-only reasons and accepts the Unicode maximum',options,async()=>fixture(async f=>{
+  const poll=await f.store.reserve({...f.request,proposalReason:'🙂'.repeat(1000)});
+  assert.equal(poll.proposalReason,'🙂'.repeat(1000));
+  for(const proposalReason of ['',' \t\n','x'.repeat(1001)]){
+    await assert.rejects(f.db.voiceReputationPoll.update({where:{id:poll.id},data:{proposalReason}}));
+  }
+  assert.equal((await f.store.get(poll.id)).proposalReason,poll.proposalReason);
+}));
+
+test('cancellation and an unverified start clear reasons without overwriting cancellation codes',options,async()=>fixture(async f=>{
+  const reserved=await f.store.reserve(f.request);
+  const cancelled=await f.store.cancel(reserved.id,'message-missing');
+  assert.equal(cancelled.proposalReason,null);assert.equal(cancelled.reason,'message-missing');
+  const next=await f.store.reserve(f.request),at=new Date();
+  const invalid=await f.store.activate(next.id,f.guildId,at,{at,userIds:[target,caller,other]});
+  assert.equal(invalid.proposalReason,null);assert.equal(invalid.reason,'start-unverified');
+}));
+
+test('author erasure clears reasons awaiting final publication without cancelling others’ votes',options,async()=>fixture(async f=>{
+  const poll=await active(f);await vote(f,poll,other,true);
+  await f.tracking.deleteMemberData(f.guildId,caller,new Date());
+  assert.equal((await f.store.get(poll.id)).proposalReason,null);
+  const result=await f.store.finish(poll.id,await expire(f,poll,[other]));
+  assert.equal(result.status,'succeeded');assert.equal(result.proposalReason,null);
+}));
+
+test('uncertain successful reason delivery blocks author erasure; published reasons remain public history',options,async()=>fixture(async f=>{
+  const poll=await active(f);await vote(f,poll,caller,true);
+  await f.store.finish(poll.id,await expire(f,poll,[caller]));await f.store.prepareDelivery(poll.id);
+  await assert.rejects(f.tracking.deleteMemberData(f.guildId,caller,new Date()),PublicationPendingError);
+  await f.store.delivered(poll.id,false);await f.tracking.deleteMemberData(f.guildId,caller,new Date());
+  assert.equal((await f.store.get(poll.id)).proposalReason,f.request.proposalReason);
 }));
 
 test('lost final transaction acknowledgement/restart returns the durable result without reapplying money',options,async()=>fixture(async f=>{

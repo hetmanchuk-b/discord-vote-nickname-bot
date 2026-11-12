@@ -13,7 +13,7 @@ const {handleChatInput}=require('../dist/interactions/chat-input.js');
 const id='11111111-1111-4111-8111-111111111111';
 const guildId='999999999999999999',target='111111111111111111',caller='222222222222222222',other='333333333333333333',fourth='444444444444444444';
 const origin=Date.parse('2026-11-11T12:00:00Z');
-const initial=()=>({id,guildId,kind:'penalty',targetId:target,initiatorId:caller,voiceChannelId:'voice',textChannelId:'text',amount:50,
+const initial=()=>({id,guildId,kind:'penalty',targetId:target,initiatorId:caller,voiceChannelId:'voice',textChannelId:'text',amount:50,proposalReason:null,
   status:'creating',messageId:null,createdAt:new Date(origin),startedAt:null,endsAt:null,closedAt:null,appliedAmount:0,balanceAfter:null,noVoterIds:[],publishing:false,publishedAt:null,messageMissing:false});
 function runtimeFixture(t,saved=null,beforeCreate){
   let at=origin;let poll=saved?structuredClone(saved):null;let dbDown=false;let lostAck=false;let verification=true;let found=null;
@@ -47,7 +47,7 @@ function runtimeFixture(t,saved=null,beforeCreate){
     retry:()=>timers.findLast(timer=>timer.delay===5000&&!timer.cancelled),
   };
 }
-const start=f=>f.runtime.create({guildId,initiatorId:caller,targetId:target,textChannelId:'text',amount:50});
+const start=f=>f.runtime.create({guildId,initiatorId:caller,targetId:target,textChannelId:'text',amount:50,proposalReason:'Тестова причина'});
 const settle=async()=>{for(let i=0;i<5;i++)await setImmediate();};
 
 test('start needs four humans including both parties; target cannot vote and outsiders are rejected',async t=>{
@@ -162,7 +162,7 @@ test('command uses ephemeral validation/confirmation and exposes exactly the thr
   const data=voicePenaltyCommand.data.toJSON();assert.equal(data.name,'voice-penalty');assert.equal(data.dm_permission,false);assert.equal(voicePenaltyCommand.cooldown,0);
   assert.deepEqual(data.options[1].choices.map(item=>item.value),[10,50,100]);
   const replies=[],calls=[];const interaction={guildId,channel:{type:ChannelType.GuildText},channelId:'text',user:{id:caller,bot:false},
-    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>50},client:{voicePolls:{create:async request=>{calls.push(request);return {...initial(),status:'active',messageId:'message'};}}},
+    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>50,getString:()=> 'Тестова причина'},client:{voicePolls:{create:async request=>{calls.push(request);return {...initial(),status:'active',messageId:'message'};}}},
     deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
   await voicePenaltyCommand.execute(interaction);assert.equal(replies[0].flags,MessageFlags.Ephemeral);assert.equal(calls[0].amount,50);
   interaction.options.getUser=()=>({id:caller,bot:false});await voicePenaltyCommand.execute(interaction);assert.equal(replies.at(-1).flags,MessageFlags.Ephemeral);assert.equal(calls.length,1);
@@ -200,7 +200,7 @@ test('voice-reward command shares eligibility and choices but reserves a reward 
   const data=voiceRewardCommand.data.toJSON();assert.equal(data.name,'voice-reward');assert.equal(data.dm_permission,false);assert.equal(voiceRewardCommand.cooldown,0);
   assert.deepEqual(data.options[1].choices.map(choice=>choice.value),[10,50,100]);
   const replies=[],calls=[];const interaction={guildId,channel:{type:ChannelType.GuildText},channelId:'text',user:{id:caller,bot:false},
-    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>100},client:{voicePolls:{create:async request=>{calls.push(request);return {...initial(),kind:'reward',status:'active',messageId:'message'};}}},
+    options:{getUser:()=>({id:target,bot:false}),getInteger:()=>100,getString:()=> 'Тестова причина'},client:{voicePolls:{create:async request=>{calls.push(request);return {...initial(),kind:'reward',status:'active',messageId:'message'};}}},
     deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
   await voiceRewardCommand.execute(interaction);assert.equal(calls[0].kind,'reward');assert.equal(calls[0].amount,100);assert.equal(replies[0].flags,MessageFlags.Ephemeral);
   interaction.options.getUser=()=>({id:caller,bot:false});await voiceRewardCommand.execute(interaction);assert.equal(calls.length,1);assert.equal(replies.at(-1).flags,MessageFlags.Ephemeral);
@@ -216,7 +216,7 @@ test('reward rendering uses reward buttons and actual credited amount without ex
 });
 
 test('reward polls use the existing durable runtime and final presence workflow',async t=>{
-  const f=runtimeFixture(t);const poll=await f.runtime.create({guildId,initiatorId:caller,targetId:target,textChannelId:'text',amount:50,kind:'reward'});
+  const f=runtimeFixture(t);const poll=await f.runtime.create({guildId,initiatorId:caller,targetId:target,textChannelId:'text',amount:50,proposalReason:'Тестова причина',kind:'reward'});
   assert.equal(poll.kind,'reward');await assert.rejects(f.runtime.vote({id:poll.id,guildId,textChannelId:'text',messageId:'message',userId:caller,yes:true,interactionId:'200000000000000001',kind:'penalty'}));
   await f.runtime.vote({id:poll.id,guildId,textChannelId:'text',messageId:'message',userId:caller,yes:true,interactionId:'200000000000000002',kind:'reward'});
   f.at(120000);f.deadline().callback();await settle();assert.equal(f.finished(),1);assert.match(f.edits[0].embeds[0].toJSON().description,/отримав/);await f.runtime.stop();
@@ -227,6 +227,18 @@ test('reward button routing preserves private changeable votes and binds the rew
     client:{voicePolls:{vote:async request=>{calls.push(request);return request.yes;}}},deferReply:async payload=>replies.push(payload),editReply:async payload=>replies.push(payload),reply:async payload=>replies.push(payload)};
   await handleButton(interaction);interaction.customId=`voice-reward:${id}:no`;await handleButton(interaction);
   assert.deepEqual(calls.map(call=>[call.kind,call.id,call.yes]),[['reward',id,true],['reward',id,false]]);assert.equal(replies[0].flags,MessageFlags.Ephemeral);
+});
+
+test('restart retains the visible voting reason and keeps it after successful finalization',async t=>{
+  const proposalReason='Допомога команді після перезапуску';
+  const saved={...initial(),kind:'reward',proposalReason,status:'active',messageId:'message',startedAt:new Date(origin),endsAt:new Date(origin+120000)};
+  const f=runtimeFixture(t,saved);f.at(60000);await f.runtime.refresh();
+  assert.equal(f.publishes(),0);assert.equal(f.edits.length,0);
+  assert.ok(renderVoicePoll(f.poll()).embeds[0].toJSON().description.endsWith(`**Причина:** ${proposalReason}`));
+  const timer=f.timers.findLast(item=>item.delay===60000);
+  f.at(120000);timer.callback();await settle();
+  assert.ok(f.edits[0].embeds[0].toJSON().description.endsWith(`**Причина:** ${proposalReason}`));
+  await f.runtime.stop();
 });
 
 test('a zero-cooldown command does not create a generic dispatcher cooldown',async()=>{

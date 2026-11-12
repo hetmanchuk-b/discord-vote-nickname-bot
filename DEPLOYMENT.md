@@ -38,6 +38,10 @@ For other installations, or when reviewing the cutover:
 
 The slash-command definitions, both existing button prefixes, and `VP:<id>:active|final` message markers are unchanged. No command re-registration is needed solely for this rename if both commands are already registered. Do not roll back to the old binary against the renamed database; any reverse cutover needs a separately reviewed migration.
 
+### Required vote reasons: hosted migration applied, registration pending
+
+`20261111100000_voice_poll_reasons` was **applied to the configured hosted database with explicit approval and confirmation that the bot was stopped**. All eleven migrations are applied and the Prisma schema diff is clean; verification confirmed unchanged poll/vote/member rows, preserved table OIDs, NULL historical reasons, a validated check constraint and a matching migration checksum. It adds `proposal_reason` (up to 1,000 Unicode characters) without rewriting existing records; historical reasons remain NULL. Other installations must stop the bot and explicitly approve/apply this migration first. Deploy the matching complete `dist/` and explicitly run `npm run commands` before restarting; neither registration nor bot deployment has been performed for this feature. Both vote commands now require a `reason` string, so their existing global definitions must be refreshed (still **18 commands**). The reason is shown during voting and retained in successful results. Existing buttons/markers remain compatible; published history and balances are preserved.
+
 ## 2. Register slash commands explicitly
 
 Your local `data/config.json` must contain the correct application client ID and bot token. Then, when you approve updating this application's global command list:
@@ -110,7 +114,7 @@ Check while background tracking is still disabled:
 - `/reputation-all` privately lists participants and their settled balances without pagination. Long lists are attached in full as `reputation-all.txt`.
 - `/voice-today` clearly says collection is inactive/unavailable, not that the bot is earning time.
 - `/reputation-off` and `/reputation-on` save only your own preference privately. They do not override the global switch.
-- `/voice-penalty user amount` and `/voice-reward user amount` need View Channel in the original voice channel and View Channel, Send Messages, Embed Links, Read Message History, and Attach Files at the poll destination. It is an interactive feature independent of the passive tracking flag; test only with consenting members. Real fines take effect immediately at the deadline and are not automatically refunded.
+- `/voice-penalty user amount reason` and `/voice-reward user amount reason` need View Channel in the original voice channel and View Channel, Send Messages, Embed Links, Read Message History, and Attach Files at the poll destination. It is an interactive feature independent of the passive tracking flag; test only with consenting members. Real fines take effect immediately at the deadline and are not automatically refunded.
 - Do not confirm `/reputation-delete` on an account whose data you want to keep. It is a real irreversible live-data reset, not a deployment health check.
 
 The code already subscribes to `GuildVoiceStates`; the bot does not join voice or record audio. Keep the Message Content privileged intent enabled for the bot's existing nickname-suggestion features. No new voice-specific privileged-intent toggle is needed.

@@ -1,5 +1,5 @@
 import type { VoicePollEvidence, VoicePoll, VoicePollStore, VoicePollVoteRequest, VoicePollKind } from './voice-poll-store.js';
-import { VoicePollError, voicePollOpen } from './voice-poll-store.js';
+import { normalizeVoicePollReason, VoicePollError, voicePollOpen } from './voice-poll-store.js';
 import { renderVoicePoll } from './voice-poll-render.js';
 import type { VoicePollPayload } from './voice-poll-render.js';
 
@@ -19,7 +19,7 @@ export class VoicePollUserError extends Error {
   constructor(readonly publicMessage: string) { super('Voice poll validation failed.'); }
 }
 export interface StartVoicePoll {
-  guildId: string; initiatorId: string; targetId: string; textChannelId: string; amount: number; kind?: VoicePollKind;
+  guildId: string; initiatorId: string; targetId: string; textChannelId: string; amount: number; proposalReason: string; kind?: VoicePollKind;
 }
 export interface VoicePolls {
   create(request: StartVoicePoll): Promise<VoicePoll>;
@@ -54,6 +54,7 @@ export class VoicePollRuntime implements VoicePolls {
   }
   async create(request: StartVoicePoll): Promise<VoicePoll> {
     this.guild(request.guildId);
+    request = { ...request, proposalReason: normalizeVoicePollReason(request.proposalReason) };
     const voiceChannelId = this.startChannel(request);
     await this.options.beforeCreate?.(); // Persist a first ongoing verified visit before checking enrollment.
     const poll = await this.options.store.reserve({ ...request, voiceChannelId });

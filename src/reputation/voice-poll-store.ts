@@ -4,18 +4,25 @@ import { getReputationDatabase } from './database.js';
 import { MIN_REPUTATION, MAX_REPUTATION } from './attendance-rules.js';
 
 export const VOICE_POLL_DURATION_MS = 120_000;
+export const VOICE_POLL_REASON_LIMIT = 1000;
 // Scheduling tolerance is NOT additional voting time. Larger delays cancel.
 export const VOICE_POLL_DEADLINE_GRACE_MS = 2_000;
 export type VoicePoll = VoiceReputationPoll;
 export type VoicePollKind = 'penalty' | 'reward';
 export const voicePollOpen = (poll: VoicePoll) => poll.status === 'active' || poll.status === 'creating';
 export class VoicePollError extends Error {
-  constructor(readonly code: 'not-participated' | 'balance-floor' | 'balance-ceiling' | 'active-poll' | 'invalid' | 'expired' | 'not-ready' | 'not-due') {
+  constructor(readonly code: 'not-participated' | 'balance-floor' | 'balance-ceiling' | 'active-poll' | 'invalid' | 'expired' | 'not-ready' | 'not-due' | 'invalid-reason') {
     super('Voice poll request could not be completed.');
   }
 }
+export function normalizeVoicePollReason(value: unknown): string {
+  if (typeof value !== 'string') throw new VoicePollError('invalid-reason');
+  const reason = value.trim();
+  if (!reason || Array.from(reason).length > VOICE_POLL_REASON_LIMIT) throw new VoicePollError('invalid-reason');
+  return reason;
+}
 export interface VoicePollRequest {
-  guildId: string; targetId: string; initiatorId: string; voiceChannelId: string; textChannelId: string; amount: number; kind?: VoicePollKind;
+  guildId: string; targetId: string; initiatorId: string; voiceChannelId: string; textChannelId: string; amount: number; proposalReason: string; kind?: VoicePollKind;
 }
 export interface VoicePollVoteRequest {
   id: string; guildId: string; textChannelId: string; messageId: string; userId: string; yes: boolean; interactionId: string; kind?: VoicePollKind;
@@ -55,7 +62,8 @@ async function target(tx: Prisma.TransactionClient, guildId: string, userId: str
 }
 async function close(tx: Prisma.TransactionClient, poll: VoicePoll, status: string, reason: string | null, data: { appliedAmount?: number; balanceAfter?: number; balanceBefore?: number; noVoterIds?: string[] } = {}) {
   const updated = await tx.voiceReputationPoll.update({ where: { id: poll.id }, data: {
-    status, reason, closedAt: await clock(tx), messageMissing: !poll.messageId, ...data,
+    status, reason, closedAt: await clock(tx), messageMissing: !poll.messageId,
+    ...(status !== 'succeeded' ? { proposalReason: null } : {}), ...data,
   } });
   await tx.voiceReputationVote.deleteMany({ where: { pollId: poll.id } });
   return updated;
@@ -63,6 +71,7 @@ async function close(tx: Prisma.TransactionClient, poll: VoicePoll, status: stri
 export function createVoicePollStore(getDatabase: () => PrismaClient = getReputationDatabase): VoicePollStore {
   return {
     async reserve(request) {
+      const proposalReason = normalizeVoicePollReason(request.proposalReason);
       const kind = request.kind ?? 'penalty';
       if (!['penalty','reward'].includes(kind) || ![10,50,100].includes(request.amount) || request.targetId === request.initiatorId) throw new VoicePollError('invalid');
       return getDatabase().$transaction(async tx => {
@@ -73,7 +82,7 @@ export function createVoicePollStore(getDatabase: () => PrismaClient = getReputa
         if (kind === 'reward' && member.balance >= MAX_REPUTATION) throw new VoicePollError('balance-ceiling');
         const existing = await tx.voiceReputationPoll.findFirst({ where: { guildId: request.guildId, targetId: request.targetId, status: { in: ['creating','active'] } }, select: { id: true } });
         if (existing) throw new VoicePollError('active-poll');
-        return tx.voiceReputationPoll.create({ data: { id: randomUUID(), ...request, kind, createdAt: await clock(tx) } });
+        return tx.voiceReputationPoll.create({ data: { id: randomUUID(), ...request, kind, proposalReason, createdAt: await clock(tx) } });
       }, transaction);
     },
     get: id => getDatabase().voiceReputationPoll.findUnique({ where: { id } }),
@@ -98,9 +107,11 @@ export function createVoicePollStore(getDatabase: () => PrismaClient = getReputa
         const verified = startEvidence && startEvidence.at >= startedAt &&
           startEvidence.at.getTime()-startedAt.getTime() <= VOICE_POLL_DEADLINE_GRACE_MS &&
           humans.size >= 4 && humans.has(poll.targetId) && humans.has(poll.initiatorId);
+        const cancelled = poll.status === 'cancelled' || now >= endsAt || !verified;
         return tx.voiceReputationPoll.update({ where: { id }, data: {
           messageId, startedAt, endsAt, messageMissing: false,
-          status: poll.status === 'cancelled' || now >= endsAt || !verified ? 'cancelled' : 'active',
+          status: cancelled ? 'cancelled' : 'active',
+          ...(cancelled ? { proposalReason: null } : {}),
           ...(poll.status !== 'cancelled' && (now >= endsAt || !verified) ? {
             closedAt: now, reason: now >= endsAt ? 'deadline-unverified' : 'start-unverified',
           } : {}),

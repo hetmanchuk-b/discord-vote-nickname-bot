@@ -73,6 +73,11 @@ test('neutral rename preserves all poll/vote data and OIDs and resumes both orig
     assert.match(unique.indexdef,/UNIQUE.*guild_id, target_id/);assert.match(unique.indexdef,/creating.*active/);
     const fk = constraints.find(row=>row.conname==='voice_reputation_votes_poll_id_fkey');
     assert.match(fk.definition,/REFERENCES voice_reputation_polls/);
+    // The current Prisma Client also selects the additive reason column.
+    const reasons = await fs.readFile(path.join(root,'20261111100000_voice_poll_reasons','migration.sql'),'utf8');
+    await client.query(reasons.replace(/^BEGIN;\r?\n/m,'').replace(/^COMMIT;\r?\n?/m,''));
+    assert.deepEqual((await client.query('SELECT * FROM voice_reputation_polls ORDER BY id')).rows,
+      after.map(row=>({...row,proposal_reason:null})));
     await client.query('COMMIT');committed = true;
 
     scoped = new PrismaClient({ adapter: new PrismaPg({ connectionString:url,max:1 },{schema}), log:[] });

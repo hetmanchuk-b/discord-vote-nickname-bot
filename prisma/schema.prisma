@@ -225,6 +225,7 @@ model VoiceReputationPoll {
   kind           String                @default("penalty") @db.VarChar(8)
   status         String                @default("creating") @db.VarChar(16)
   reason         String?               @db.VarChar(32)
+  proposalReason String?               @map("proposal_reason") @db.VarChar(1000)
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
   endsAt         DateTime?             @map("ends_at") @db.Timestamptz(3)

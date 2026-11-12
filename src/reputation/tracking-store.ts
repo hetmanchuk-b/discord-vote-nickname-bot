@@ -133,17 +133,24 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
         });
         const pollPublishing = await tx.voiceReputationPoll.findFirst({
           where: { guildId, publishing: true, publishedAt: null, messageMissing: false,
-            OR: [{ targetId: userId }, { noVoterIds: { has: userId } }] }, select: { id: true },
+            OR: [{ targetId: userId }, { noVoterIds: { has: userId } },
+              { initiatorId: userId, proposalReason: { not: null } }] }, select: { id: true },
         });
         if (publishing || pollPublishing) throw new PublicationPendingError();
         // Cancel target polls before erasing enrollment. Re-enrollment cannot
         // resurrect them. Published outcomes remain immutable public history.
         await tx.voiceReputationPoll.updateMany({
           where: { guildId, targetId: userId, publishedAt: null, publishing: false },
-          data: { status: 'cancelled', reason: 'target-erased', appliedAmount: 0, balanceAfter: null, balanceBefore: null, noVoterIds: [], closedAt: at },
+          data: { status: 'cancelled', reason: 'target-erased', proposalReason: null, appliedAmount: 0, balanceAfter: null, balanceBefore: null, noVoterIds: [], closedAt: at },
         });
         await tx.voiceReputationPoll.updateMany({
           where: { guildId, targetId: userId, messageId: null }, data: { messageMissing: true },
+        });
+        // Clear authored reasons still awaiting final publication on erasure;
+        // preserve completed public history and do not cancel others' votes.
+        await tx.voiceReputationPoll.updateMany({
+          where: { guildId, initiatorId: userId, publishedAt: null, publishing: false },
+          data: { proposalReason: null },
         });
         await tx.voiceReputationVote.deleteMany({ where: { OR: [
           { userId, poll: { guildId } }, { poll: { guildId, targetId: userId, status: 'cancelled', publishedAt: null } },

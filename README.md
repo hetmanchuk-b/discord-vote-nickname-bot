@@ -202,8 +202,8 @@ Apply migration `20261111030000_member_controls` to the intended database before
 | `/reputation-on` | Resume only the caller without retroactive pause credit | Ephemeral |
 | `/reputation-rules` | Earning, settlement, channel, downtime, and deletion rules | Ephemeral |
 | `/reputation-delete` | Caller-only Delete/Cancel confirmation, expiring after 60 seconds | Ephemeral |
-| `/voice-penalty user amount` | Start a 120-second button vote for a 10/50/100-point fine | Public poll; private confirmations |
-| `/voice-reward user amount` | Same voting rules, but award 10/50/100 points, capped at 5,000 | Public poll; private confirmations |
+| `/voice-penalty user amount reason` | Start a 120-second button vote for a 10/50/100-point fine | Public poll; private confirmations |
+| `/voice-reward user amount reason` | Same voting rules, but award 10/50/100 points, capped at 5,000 | Public poll; private confirmations |
 
 All commands are server-only. User options use Discord's member/user picker, not ambiguous free-text username matching. Bots are not eligible. Public statistics do not ping the selected user. Reading statistics for an unknown member does not create a database record.
 
@@ -238,7 +238,7 @@ Operational warnings combine tracking, settlement, and report-delivery health in
 
 ### Voice penalty polls
 
-`/voice-penalty user:@member amount:10|50|100` starts a poll in the current regular text/voice text channel. The initiator and target must be different humans in the same regular voice channel, with at least **four humans including both** when the poll starts. The target must have previously participated in reputation (including a verified visit not yet settled); poll creation checkpoints an available tracker first. Paused participants are allowed. Never-participated/deleted targets and balances already at −500 are rejected privately.
+`/voice-penalty user:@member amount:10|50|100 reason:TEXT` starts a poll in the current regular text/voice text channel. The initiator and target must be different humans in the same regular voice channel, with at least **four humans including both** when the poll starts. The target must have previously participated in reputation (including a verified visit not yet settled); poll creation checkpoints an available tracker first. Paused participants are allowed. Never-participated/deleted targets and balances already at −500 are rejected privately.
 
 - There is one active poll per target and **no cooldown**. The target cannot vote. Anyone else must be human and in the original voice channel when clicking; joins after the start are allowed.
 - Yes/No buttons allow changing selection. The latest Discord interaction wins even if database requests complete out of order. Confirmations are private; no live totals or choices are displayed.
@@ -255,7 +255,7 @@ The poll destination must be visible to the humans in the original voice channel
 
 ### Voice reward polls
 
-`/voice-reward user:@member amount:10|50|100` mirrors `/voice-penalty`: four humans at the start, same-channel participation, no self-targeting or target voting, changeable private Yes/No choices, a 120-second deadline, and at least one eligible Yes with no eligible No. Tracking pauses do not prevent rewards, but prior verified reputation participation is required. The original channel, restart/deadline safeguards, hidden-channel prevention, permissions, and failed No-voter disclosure are shared rather than implemented separately.
+`/voice-reward user:@member amount:10|50|100 reason:TEXT` mirrors `/voice-penalty`: four humans at the start, same-channel participation, no self-targeting or target voting, changeable private Yes/No choices, a 120-second deadline, and at least one eligible Yes with no eligible No. Tracking pauses do not prevent rewards, but prior verified reputation participation is required. The original channel, restart/deadline safeguards, hidden-channel prevention, permissions, and failed No-voter disclosure are shared rather than implemented separately.
 
 Rewards are added immediately and stop at **5,000**. A requested +100 at 4,980 awards **20**, and the result reports that actual credit. Targets already at 5,000 are rejected privately; reaching the ceiling while voting cancels without claiming a zero-point reward. A −500 balance may receive rewards. Neither vote type changes attendance streaks. There is **one active poll per target across penalties and rewards**, with no cooldown.
 
@@ -266,6 +266,12 @@ Rewards are added immediately and stop at **5,000**. A requested +100 at 4,980 a
 Both commands use `voice-poll-*` modules and `client.voicePolls`. Prisma models are `VoiceReputationPoll` / `VoiceReputationVote`; PostgreSQL tables are `voice_reputation_polls` / `voice_reputation_votes`. `appliedAmount` (`applied_amount`) is a positive applied magnitude; `kind` determines debit or credit.
 
 Migration `20261111090000_neutral_voice_polls` renames the existing tables, column, indexes and constraints **in place**, without recreating tables or changing records, balances, deadlines or choices. Historical migrations remain unchanged. With explicit approval and confirmation that the bot was stopped, this migration was applied to the configured hosted database. All ten migrations are applied and the schema diff is clean; before/after verification confirmed unchanged poll/vote/member rows and preserved table OIDs. Other installations must stop all old bot instances before explicitly applying it. Deploy the matching fresh build before restarting; old binaries are incompatible with the renamed schema. Existing `/voice-penalty` / `/voice-reward` commands, button IDs and `VP:<id>:active|final` message markers remain unchanged, so this refactor alone needs no command re-registration. See [DEPLOYMENT.md](DEPLOYMENT.md) for the coordinated cutover. `npm run build` cleans `dist/` first to remove obsolete modules.
+
+### Required vote reasons — hosted schema updated
+
+Both vote commands require a nonblank plain-text `reason` (up to 1,000 Unicode characters; surrounding whitespace is trimmed). It is saved durably, shown **during voting**, and retained at the end of a successful result after the actual credited/deducted amount. Failed and cancelled results omit it. Markdown is escaped and mention notifications remain disabled. Unsuccessful reasons are discarded; erasure clears authored reasons awaiting final publication, while successfully published results remain public history. Historical votes without a reason continue normally without an invented explanation.
+
+Migration `20261111100000_voice_poll_reasons` adds nullable `proposal_reason`, separate from the existing internal cancellation `reason` code. It preserves existing polls, choices, deadlines, results and balances. With explicit approval and confirmation that the bot was stopped, it was applied to the configured hosted database. All eleven migrations are applied and the schema diff is clean; verification confirmed unchanged poll/vote/member rows, preserved table OIDs, NULL historical reasons and a matching migration checksum. Other installations must stop the bot and explicitly review/apply the migration before deploying. Deploy the fresh complete `dist/` and explicitly run `npm run commands` to update the required options on the existing **18 commands** before restarting; command registration and bot deployment have not been performed for this feature.
 
 ### Database tests
 

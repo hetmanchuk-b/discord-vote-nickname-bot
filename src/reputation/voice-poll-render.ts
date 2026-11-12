@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, escapeMarkdown } from 'discord.js';
 import type { MessageEditOptions } from 'discord.js';
 import type { VoicePoll } from './voice-poll-store.js';
 
@@ -39,6 +39,9 @@ export function renderVoicePoll(poll: VoicePoll): VoicePollPayload {
       poll.reason === 'balance-floor' ? 'Штраф скасовано: баланс адресата вже досяг мінімуму −500.' :
       poll.reason === 'balance-ceiling' ? 'Нагороду скасовано: баланс адресата вже досяг максимуму 5 000.' :
       `${action} скасовано: не вдалося надійно перевірити голосування та присутність у встановлений час.`;
+  }
+  if ((active || poll.status === 'succeeded') && poll.proposalReason) {
+    description += `\n\n**Причина:** ${escapeMarkdown(poll.proposalReason)}`;
   }
   return {
     content: '', allowedMentions: { parse: [] }, attachments: [], files,
