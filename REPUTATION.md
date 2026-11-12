@@ -63,6 +63,12 @@ Migration `20261111080000_voice_rewards` was applied to the hosted database with
 
 All **305 tests** passed with local database integration, including capped/exact-once credits, paused/floor targets, veto/no-Yes/unverified outcomes, cross-kind reservation/button isolation, erasure, settlement races, legacy schema upgrades/history preservation, and rollback of legacy-style reward debits. Build, type-check, lint, schema validation, fresh local migration deployment and schema-diff checks passed.
 
+## Private participant list
+
+`/reputation-all` lists participants and their settled reputation privately, highest balance first with a stable user-ID tie-break. It shows only participant mentions and balances, without pagination or extra statistics. Zero/negative balances and paused participants are included; erased/never-participating identities are excluded, while verified unsettled participation qualifies. Reads do not checkpoint tracking or change balances. Lists exceeding Discord's 2,000-character message limit are attached in full as `reputation-all.txt` instead of being truncated.
+
+All **316 tests** passed with disposable local database integration enabled (none skipped); type-check, lint and build passed. No new schema migration is needed. Register the updated **18-command** list explicitly with `npm run commands` before using the new command; registration and bot deployment have not been performed for this addition.
+
 ## Neutral shared voting names
 
 Shared modules/types now use `voice-poll-*` / `VoicePoll*`, and the client exposes `voicePolls`. Prisma models are `VoiceReputationPoll` and `VoiceReputationVote`; `appliedAmount` is a positive magnitude with direction determined by `kind`. Migration `20261111090000_neutral_voice_polls` renames the existing PostgreSQL tables to `voice_reputation_polls` / `voice_reputation_votes` and the column to `applied_amount`, including associated index/constraint identifiers. It does not recreate tables or alter data, balances, choices, deadlines or published audit history. Historical migrations remain unchanged.

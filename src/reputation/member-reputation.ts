@@ -1,10 +1,11 @@
 import { createMemberStore } from './member-store.js';
-import type { MemberStore, TodayStatistics } from './member-store.js';
+import type { MemberStore, ParticipantReputation, TodayStatistics } from './member-store.js';
 import { createTrackingStore } from './tracking-store.js';
 import type { TrackingStore } from './tracking-store.js';
 import type { VoiceTracker } from './voice-tracker.js';
 
 export interface ReputationMembers {
+  getAll(guildId: string): Promise<ParticipantReputation[]>;
   getBalance(guildId: string, userId: string): Promise<number>;
   getToday(guildId: string, userId: string): Promise<TodayStatistics & { trackingAvailable: boolean }>;
   setTracking(guildId: string, userId: string, enabled: boolean): Promise<{ trackingAvailable: boolean }>;
@@ -24,6 +25,7 @@ export function createMemberReputation(options: MemberReputationOptions): Reputa
   const tracking = options.tracking ?? createTrackingStore();
   const now = options.now ?? (() => new Date());
   return {
+    getAll: guildId => members.getAll(guildId),
     getBalance: (guildId, userId) => members.getBalance(guildId, userId),
 
     async getToday(guildId, userId) {

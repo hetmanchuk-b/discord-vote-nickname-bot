@@ -194,6 +194,7 @@ Apply migration `20261111030000_member_controls` to the intended database before
 | Command | Behavior | Visibility |
 | --- | --- | --- |
 | `/reputation [user]` | Settled balance; defaults to the caller | Public |
+| `/reputation-all` | Participants and their settled reputation, highest first; no pagination | Ephemeral |
 | `/voice-today [user]` | Verified time, pending whole points, tracking status, and incomplete-data warnings for the current Kyiv day | Public |
 | `/reputation-off` | Pause only the caller; preserve earlier time and balance | Ephemeral |
 | `/reputation-on` | Resume only the caller without retroactive pause credit | Ephemeral |

@@ -43,6 +43,33 @@ async function recordedDay(f) {
   return { day, runId };
 }
 
+test('all balances include paused, zero, negative and unsettled participants but exclude never-participated and erased identities', options, async () => {
+  await fixture(async f => {
+    const leader = '333333333333333333', unsettled = '444444444444444444';
+    const waiting = '555555555555555555', erased = '666666666666666666';
+    assert.deepEqual(await f.members.getAll(f.guildId),[]);
+    assert.equal(await f.database.reputationGuild.count({where:{guildId:f.guildId}}),0);
+    await f.database.reputationGuild.create({data:{guildId:f.guildId}});
+    await f.database.reputationMember.createMany({data:[
+      {guildId:f.guildId,userId:john,balance:-5,hasParticipated:true,isTracking:false},
+      {guildId:f.guildId,userId:nathan,balance:0,hasParticipated:true},
+      {guildId:f.guildId,userId:leader,balance:100,hasParticipated:true},
+      {guildId:f.guildId,userId:unsettled,balance:0},
+      {guildId:f.guildId,userId:waiting,balance:0},
+      {guildId:f.guildId,userId:erased,balance:25,hasParticipated:true},
+    ]});
+    const from = new Date('2026-11-11T10:00:00Z'), to = new Date(from.getTime()+1000);
+    const {runId} = await f.tracking.openRun(f.guildId,from);
+    await f.database.reputationVoiceInterval.create({data:{guildId:f.guildId,userId:unsettled,runId,startedAt:from,endedAt:to}});
+    await f.tracking.deleteMemberData(f.guildId,erased,to);
+    assert.deepEqual(await f.members.getAll(f.guildId),[
+      {userId:leader,balance:100},{userId:nathan,balance:0},{userId:unsettled,balance:0},{userId:john,balance:-5},
+    ]);
+    assert.deepEqual(await f.members.getAll(`${f.guildId}0`),[]);
+    assert.equal(await f.database.reputationMember.count({where:{guildId:f.guildId}}),6);
+  });
+});
+
 test('unknown-member statistics are default-on and read-only, without fabricating complete coverage', options, async () => {
   await fixture(async f => {
     assert.equal(await f.members.getBalance(f.guildId, john), 0);

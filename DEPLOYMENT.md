@@ -46,7 +46,7 @@ Your local `data/config.json` must contain the correct application client ID and
 npm run commands
 ```
 
-This contacts Discord and replaces this application's global command registrations with the **17 commands** in the repository. Do not use another bot application's credentials. Refresh Discord/wait for command propagation if new commands do not appear immediately.
+This contacts Discord and replaces this application's global command registrations with the **18 commands** in the repository. Do not use another bot application's credentials. Refresh Discord/wait for command propagation if new commands do not appear immediately.
 
 Do not put the Discord token in GitHub's backup secrets. The backup workflow does not need it.
 
@@ -107,6 +107,7 @@ Check while background tracking is still disabled:
 
 - `/reputation-rules` is visible only to its caller.
 - `/reputation` shows a settled balance publicly.
+- `/reputation-all` privately lists participants and their settled balances without pagination. Long lists are attached in full as `reputation-all.txt`.
 - `/voice-today` clearly says collection is inactive/unavailable, not that the bot is earning time.
 - `/reputation-off` and `/reputation-on` save only your own preference privately. They do not override the global switch.
 - `/voice-penalty user amount` and `/voice-reward user amount` need View Channel in the original voice channel and View Channel, Send Messages, Embed Links, Read Message History, and Attach Files at the poll destination. It is an interactive feature independent of the passive tracking flag; test only with consenting members. Real fines take effect immediately at the deadline and are not automatically refunded.

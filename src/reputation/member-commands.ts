@@ -1,12 +1,14 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { Buffer } from 'node:buffer';
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Command } from '../types.js';
 import { formatVoiceTime } from '../utils/format-voice-time.js';
 import { DELETION_CONFIRMATION_MS, DELETE_CANCEL_ID, DELETE_CONFIRM_ID, deletionConfirmations } from './deletion-confirmations.js';
 import type { DeletionConfirmations } from './deletion-confirmations.js';
 
-export type MemberCommand = 'balance' | 'today' | 'on' | 'off' | 'rules' | 'delete';
+export type MemberCommand = 'all' | 'balance' | 'today' | 'on' | 'off' | 'rules' | 'delete';
 const definitions = {
+  all: ['reputation-all', 'Показати список учасників та їхню репутацію лише вам.'],
   balance: ['reputation', 'Показати зараховану репутацію.'],
   today: ['voice-today', 'Показати сьогоднішній час у голосових каналах.'],
   on: ['reputation-on', 'Відновити власне відстеження репутації.'],
@@ -77,6 +79,16 @@ export function createMemberCommand(action: MemberCommand, confirmations = delet
       try {
         if (action === 'delete') return await promptDeletion(interaction, confirmations);
         const members = interaction.client.reputation;
+        if (action === 'all') {
+          const participants = await members.getAll(interaction.guildId);
+          const content = participants.map(member => `<@${member.userId}> — ${member.balance.toLocaleString('uk-UA')}`).join('\n');
+          return await interaction.editReply({
+            ...(content.length > 2000 ? {
+              files: [new AttachmentBuilder(Buffer.from(content, 'utf8'), { name: 'reputation-all.txt' })],
+            } : { content: content || 'Учасників ще немає.' }),
+            allowedMentions: { parse: [] },
+          });
+        }
         if (action === 'balance') {
           const balance = await members.getBalance(interaction.guildId, target.id);
           return await interaction.editReply({

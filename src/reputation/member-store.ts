@@ -14,13 +14,25 @@ export interface TodayStatistics {
   absenceStreak: number;
 }
 
+export interface ParticipantReputation {
+  userId: string;
+  balance: number;
+}
+
 export interface MemberStore {
+  getAll(guildId: string): Promise<ParticipantReputation[]>;
   getBalance(guildId: string, userId: string): Promise<number>;
   getToday(guildId: string, userId: string, at: Date): Promise<TodayStatistics>;
 }
 
 export function createMemberStore(getDatabase: () => PrismaClient = getReputationDatabase): MemberStore {
   return {
+    getAll: guildId => getDatabase().reputationMember.findMany({
+      where: { guildId, OR: [{ hasParticipated: true }, { intervals: { some: {} } }] },
+      select: { userId: true, balance: true },
+      orderBy: [{ balance: 'desc' }, { userId: 'asc' }],
+    }),
+
     async getBalance(guildId, userId) {
       const member = await getDatabase().reputationMember.findUnique({
         where: { guildId_userId: { guildId, userId } }, select: { balance: true },
