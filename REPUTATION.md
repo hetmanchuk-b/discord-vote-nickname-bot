@@ -9,7 +9,7 @@ Status: **stages 1–6 implemented**, including member commands, reports/warning
 - Stage 3: DST-safe Kyiv-day boundaries, transactional whole-point payouts, immutable post-payout balance values in daily results, coverage summaries, duplicate-payout prevention, and startup/midnight catch-up with bounded retries.
 - Stage 4: public balance/today commands, ephemeral rules and pause/resume commands, caller-bound 60-second deletion confirmation, and transactional live-data erasure. A monotonic member eligibility cutoff protects against stale work after deletion/re-enrollment.
 - With the user's approval, stage-4 migration `20261111030000_member_controls` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all four migrations are up to date. All **124 tests** passed against a disposable local database with integration tests enabled; schema validation, type-check, lint, and build also passed. Discord command deployment has not been run.
-- Stage 5: positive-earner embeds (5 per shared page), durable publication snapshots/message identities, lost-acknowledgement reconciliation, and a reusable hourly-updated warning message aggregating tracking/settlement/delivery health.
+- Stage 5: positive-earner embeds (10 per shared page), durable publication snapshots/message identities, lost-acknowledgement reconciliation, and a reusable hourly-updated warning message aggregating tracking/settlement/delivery health.
 - With the user's approval, stage-5 migration `20261111040000_reports_and_warnings` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed all five migrations are up to date. All **164 tests** passed with local database integration enabled, including snapshot retention, erasure/publication races, shared navigation, lost acknowledgements, warning recovery, and throttling. Schema validation, type-check, lint, and build also passed. Discord transport was mocked: no live messages or command deployment were performed. Background activity remains disabled by default.
 - The initial schema stores server-scoped report destinations and member identities, integer balances, and `is_tracking` (default true). Stage 2 adds tracking runs and voice intervals. Stage 3 adds unique day ledgers, member/day results, and a settled-through watermark. Stage 5 adds published report snapshots, delivery state, and persistent warning metadata.
 - With the user's approval, stage-2 migration `20261111010000_voice_tracking` was applied to the hosted database using `prisma migrate deploy`; subsequent status verification confirmed both migrations are up to date. Tracking still requires explicit `REPUTATION_TRACKING_ENABLED=true` and `REPUTATION_GUILD_ID`; keep it disabled until deployment verification is complete and activation is explicitly chosen.
@@ -198,7 +198,7 @@ Time should be accumulated before rounding, not rounded separately for each visi
 
 - Post to a main text channel that will be explicitly configured; do not guess the destination.
 - Describe the **previous Kyiv calendar day**, clearly stating its date.
-- Include all members whose daily award is greater than zero, paginated with **5 members per page**.
+- Include all members whose daily award is greater than zero, paginated with **10 members per page**.
 - Use **shared pagination**: a public embed with Previous/Next buttons. Members can navigate; the bot updates the visible page for everyone. Navigating cannot modify stored statistics.
 - Display page numbers and disable navigation where there is no previous/next page. Single-page reports need no navigation controls.
 - Historical pagination remains available after restarts, using saved daily results rather than temporary in-memory sessions.
@@ -294,7 +294,7 @@ Source: https://www.prisma.io/pricing
 ## Open rules and product decisions
 
 1. Stage 5 resolves navigation and missing-message behavior: serialize edits per message, retain restart-safe snapshots, never automatically recreate published/deleted history. A missing in-flight message becomes terminal `missing`.
-2. Stage 5 uses one positive-earner embed with 5 rows/page, time/points/frozen balance, coverage warnings, and original-day labels. Operational issues share one reusable warning embed.
+2. Stage 5 uses one positive-earner embed with 10 rows/page, time/points/frozen balance, coverage warnings, and original-day labels. Operational issues share one reusable warning embed.
 3. Channel changes affect pending/unfrozen reports and future/current warnings, not historical published messages or already-frozen in-flight deliveries.
 4. Should any administrative balance adjustments or corrections be allowed? None are currently specified.
 5. Verify provider metering and finalize a backup/export policy. Stage 1 selects Prisma 7.10.1 with the PostgreSQL adapter and explicit versioned migration deployment.

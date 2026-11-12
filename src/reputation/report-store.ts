@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
 import { getReputationDatabase } from './database.js';
+import { REPORT_PAGE_SIZE } from './report-pagination.js';
 
 const include = { settlement: true } as const;
 type StoredReport = Prisma.ReputationReportGetPayload<{ include: typeof include }>;
@@ -127,11 +128,11 @@ export function createReportStore(getDatabase: () => PrismaClient = getReputatio
     },
     async snapshot(id, page) {
       const row = await getDatabase().reputationReport.findUniqueOrThrow({ where: { id }, include });
-      if (!Number.isSafeInteger(page) || page < 0 || page >= Math.max(1, Math.ceil(row.entryCount / 5))) {
+      if (!Number.isSafeInteger(page) || page < 0 || page >= Math.max(1, Math.ceil(row.entryCount / REPORT_PAGE_SIZE))) {
         throw new Error('Invalid report page.');
       }
       const entries = await getDatabase().reputationReportEntry.findMany({
-        where: { reportId: id }, orderBy: { position: 'asc' }, skip: page * 5, take: 5,
+        where: { reportId: id }, orderBy: { position: 'asc' }, skip: page * REPORT_PAGE_SIZE, take: REPORT_PAGE_SIZE,
         select: { userId: true, position: true, eligibleMs: true, points: true, balanceAfter: true },
       });
       return { report: view(row), entries, page };

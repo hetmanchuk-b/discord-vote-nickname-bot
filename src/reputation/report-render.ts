@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'disc
 import type { MessageEditOptions } from 'discord.js';
 import type { DailyReport, ReportSnapshot } from './report-store.js';
 import { formatVoiceTime } from '../utils/format-voice-time.js';
+import { REPORT_PAGE_SIZE } from './report-pagination.js';
 
 export const REPORT_PAGE_PREFIX = 'reputation:page:';
 export type PublicationPayload = Pick<MessageEditOptions, 'content' | 'embeds' | 'components' | 'allowedMentions'>;
@@ -16,7 +17,7 @@ export function renderPlaceholder(report: DailyReport): PublicationPayload {
 }
 
 export function renderReport({ report, entries, page }: ReportSnapshot, deliveryAt?: Date): PublicationPayload {
-  const pages = Math.max(1, Math.ceil(report.entryCount / 5));
+  const pages = Math.max(1, Math.ceil(report.entryCount / REPORT_PAGE_SIZE));
   const description = [];
   if (report.incomplete) description.push('⚠️ Відстеження було неповним. Враховано лише перевірений час.');
   const confirmedAt = deliveryAt ?? report.publishedAt ?? report.preparedAt ?? report.createdAt;

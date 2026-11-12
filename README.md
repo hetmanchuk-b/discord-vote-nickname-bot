@@ -215,7 +215,7 @@ Deletion and tracking-preference changes serialize with the active tracker. Data
 
 Review/apply `20261111040000_reports_and_warnings` before deploying this version. It adds report snapshots, publication state, and warning metadata; applying it does not send messages or activate tracking.
 
-Daily reports use one public embed with **5 positive earners per page** and shared Previous/Next buttons. Each entry includes eligible time, daily points, and the frozen settled balance. Order is daily points descending, eligible time descending, then user ID ascending. Everyone can navigate, but cannot change saved data. Navigation acknowledges clicks immediately and serializes edits to the same message; saved message identity and snapshots keep old buttons working after restarts, even when background tracking is disabled.
+Daily reports use one public embed with **10 positive earners per page** and shared Previous/Next buttons. Each entry includes eligible time, daily points, and the frozen settled balance. Order is daily points descending, eligible time descending, then user ID ascending. Everyone can navigate, but cannot change saved data. Navigation acknowledges clicks immediately and serializes edits to the same message; saved message identity and snapshots keep old buttons working after restarts, even when background tracking is disabled.
 
 A fully observed empty day says `No activity recorded`. Recorded sub-threshold activity says `No reputation earned today`, without zero-point rows. Missing observations say `No verified activity recorded` with an incomplete-coverage warning. Catch-up reports retain the original Kyiv date and indicate delayed delivery/confirmation. Embeds and warnings disable mention notifications.
 

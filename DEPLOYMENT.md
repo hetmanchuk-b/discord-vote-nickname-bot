@@ -138,7 +138,7 @@ Verify with your own account:
 3. `/voice-today` should include verified time and pending whole points (it requests an on-demand checkpoint).
 4. `/reputation` does **not** add today's pending points before settlement.
 5. At 00:00 **Europe/Kyiv**, the previous day's verified time settles and the daily embed appears.
-6. If there are more than five positive earners, anyone can navigate shared pages. Snapshot balances are the totals at that day's settlement, not their later live balances.
+6. If there are more than ten positive earners, anyone can navigate shared pages. Snapshot balances are the totals at that day's settlement, not their later live balances.
 
 The first activation day is intentionally marked partial: the bot cannot observe earlier hours. AFK/Stage/bot participation does not count; muted/deafened members count normally. Unrecorded gaps after crashes/outages are never invented as credit. Do not change the system clock, backdate production records, or force payouts to simulate midnight—use the automated settlement tests instead.
 

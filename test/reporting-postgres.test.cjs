@@ -56,23 +56,32 @@ async function fixture(callback) {
   }
 }
 
-test('snapshot ranking, five-person pages, and settled balance values survive erasure and restart', options, async () => {
+test('snapshot ranking, ten-person pages, and settled balance values survive erasure and restart', options, async () => {
   await fixture(async f => {
+    const extra = Array.from({ length: 5 }, (_, i) => String(111111111111111120n + BigInt(i)));
+    await f.database.reputationMember.createMany({ data: extra.map(userId => ({ guildId: f.guildId, userId, balance: 900 })) });
+    await f.database.reputationDailyAward.createMany({ data: extra.map((userId, i) => ({
+      guildId: f.guildId, userId, day: f.day.day, points: 1, eligibleMs: 600000, balanceAfter: 200 + i,
+    })) });
     await f.store.prepare(f.report.id);
     await f.store.finish(f.report.id);
     const first = await f.store.snapshot(f.report.id, 0);
     const last = await f.store.snapshot(f.report.id, 1);
-    assert.equal(first.report.entryCount, 6);
-    assert.equal(first.entries.length, 5);
+    assert.equal(first.report.entryCount, 11);
+    assert.equal(first.entries.length, 10);
     assert.equal(last.entries.length, 1);
     assert.deepEqual(first.entries.slice(0, 2).map(entry => entry.userId), users.slice(0, 2));
-    assert.deepEqual(first.entries.slice(2).map(entry => entry.userId), [users[5], users[4], users[3]]);
-    assert.equal(last.entries[0].userId, users[2]);
+    assert.deepEqual(first.entries.slice(2).map(entry => entry.userId), [users[5], users[4], users[3], users[2], ...extra.slice(0, 4)]);
+    assert.equal(last.entries[0].userId, extra[4]);
+    assert.equal(last.entries[0].position, 10);
+    assert.equal(last.entries[0].balanceAfter, 204);
+    await assert.rejects(f.store.snapshot(f.report.id, 2), /Invalid report page/);
     assert.equal(first.entries[0].balanceAfter, 100); // Not the current live 900.
     await f.tracking.deleteMemberData(f.guildId, users[0], new Date());
     assert.equal(await f.database.reputationDailyAward.count({ where: { guildId: f.guildId, userId: users[0] } }), 0);
     const restarted = createReportStore(() => f.database);
     assert.deepEqual((await restarted.snapshot(f.report.id, 0)).entries, first.entries);
+    assert.deepEqual((await restarted.snapshot(f.report.id, 1)).entries, last.entries);
     const navigation = createReportNavigation(async () => {}, restarted);
     const page = await navigation.page({ reportId: f.report.id, page: 0, guildId: f.guildId, channelId, messageId });
     assert.match(page.embeds[0].toJSON().fields[0].value, /100/);

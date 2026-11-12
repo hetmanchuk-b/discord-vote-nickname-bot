@@ -9,6 +9,7 @@ import type { WarningDetail } from './warning-details.js';
 import { OperationalWarnings } from './operational-warnings.js';
 import { ReportPublisher } from './report-publisher.js';
 import { renderReport } from './report-render.js';
+import { REPORT_PAGE_SIZE } from './report-pagination.js';
 import type { PublicationPayload } from './report-render.js';
 
 export interface ReportPageRequest {
@@ -28,7 +29,7 @@ export function createReportNavigation(
       const report = await store.get(request.reportId);
       if (!report || report.status !== 'published' || report.guildId !== request.guildId ||
           report.channelId !== request.channelId || report.messageId !== request.messageId ||
-          !Number.isSafeInteger(request.page) || request.page < 0 || request.page >= Math.max(1, Math.ceil(report.entryCount / 5))) return null;
+          !Number.isSafeInteger(request.page) || request.page < 0 || request.page >= Math.max(1, Math.ceil(report.entryCount / REPORT_PAGE_SIZE))) return null;
       return renderReport(await store.snapshot(report.id, request.page));
     },
     channelChanged: onChannelChanged,
