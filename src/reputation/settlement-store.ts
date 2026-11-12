@@ -5,6 +5,7 @@ import { kyivDate, kyivDay } from './kyiv-day.js';
 import { summarizeDay } from './daily-summary.js';
 import type { MemberTime } from './daily-summary.js';
 import { settleAttendance } from './attendance-rules.js';
+import { absenceObservationSufficient, MAX_STREAK_GAP_MS } from './streak-observation.js';
 
 export interface SettledDay {
   day: string;
@@ -58,12 +59,18 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
           GROUP BY user_id
         `);
         const runs = await tx.reputationTrackingRun.findMany({
-          where: { guildId, startedAt: { lt: day.end }, verifiedThrough: { gt: day.start } },
+          // Include neighboring observations so midnight cannot split an outage
+          // into two apparently acceptable shorter gaps. Anything further away
+          // already exceeds the per-outage limit or leaves an unbounded edge.
+          where: { guildId,
+            startedAt: { lte: new Date(day.end.getTime() + MAX_STREAK_GAP_MS) },
+            verifiedThrough: { gte: new Date(day.start.getTime() - MAX_STREAK_GAP_MS) },
+          },
           select: { startedAt: true, verifiedThrough: true },
         });
-        const summary = summarizeDay(day, totals, runs.map(run => ({
-          start: run.startedAt, end: run.verifiedThrough,
-        })));
+        const coverage = runs.map(run => ({ start: run.startedAt, end: run.verifiedThrough }));
+        const summary = summarizeDay(day, totals, coverage);
+        const absenceObserved = absenceObservationSufficient(day, coverage);
         const eligibleById = new Map(summary.members.map(member => [member.userId, member.eligibleMs]));
         const members = await tx.reputationMember.findMany({
           where: { guildId, OR: [{ hasParticipated: true }, { userId: { in: [...eligibleById.keys()] } }] },
@@ -86,11 +93,14 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
           throw new Error('Settlement member records changed.');
         }
         const policyActive = !guild.attendanceStartsAt || day.start >= guild.attendanceStartsAt;
-        const awards = members.map(member => ({
-          userId: member.userId,
-          ...settleAttendance(member, eligibleById.get(member.userId) ?? 0,
-            !policyActive || summary.incomplete || member.pauses.length > 0),
-        }));
+        const awards = members.map(member => {
+          const eligibleMs = eligibleById.get(member.userId) ?? 0;
+          return {
+            userId: member.userId,
+            ...settleAttendance(member, eligibleMs,
+              !policyActive || member.pauses.length > 0 || (eligibleMs === 0 && !absenceObserved)),
+          };
+        });
         const pointsAwarded = awards.reduce((total, award) => total + award.points, 0);
         if (!Number.isSafeInteger(pointsAwarded) || Math.abs(pointsAwarded) > 2_147_483_647) {
           throw new Error('Daily net point total exceeds storage capacity.');

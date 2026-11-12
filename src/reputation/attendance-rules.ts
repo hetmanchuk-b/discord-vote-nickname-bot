@@ -11,8 +11,9 @@ export interface AttendanceState {
   absenceStreak: number;
 }
 
-// One closed Kyiv day. Pauses and incomplete observation freeze BOTH streaks;
-// previously verified time still earns base points. Never infer absent time.
+// One closed Kyiv day. Explicit exemptions (pause, pre-policy, or insufficient
+// observation for an absent member) freeze BOTH streaks. Verified attendance
+// does not require complete global coverage; never invent missing voice time.
 export function settleAttendance(state: AttendanceState, eligibleMs: number, exempt: boolean) {
   const { balance } = state;
   if (!Number.isInteger(balance) || balance < MIN_REPUTATION || balance > MAX_REPUTATION ||

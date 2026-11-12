@@ -54,6 +54,20 @@ async function settleAll(f, at) {
 const member = f => f.database.reputationMember.findUniqueOrThrow({ where:{ guildId_userId:{ guildId:f.guildId,userId:john } } });
 const awards = f => f.database.reputationDailyAward.findMany({ where:{ guildId:f.guildId,userId:john },orderBy:{ day:'asc' } });
 
+async function outageDay(f,durations,visited=false) {
+  const t = await timeline(f,1,visited?[{day:0,ms:600000}]:[]);
+  const gaps = durations.map((ms,i)=>({
+    start:new Date(t.days[0].start.getTime()+(i+1)*60*60000),
+    end:new Date(t.days[0].start.getTime()+(i+1)*60*60000+ms),
+  }));
+  await f.database.reputationTrackingRun.update({where:{id:t.runId},data:{verifiedThrough:gaps[0].start,closedAt:gaps[0].start}});
+  await f.database.reputationTrackingRun.createMany({data:gaps.map((gap,i)=>({
+    id:randomUUID(),guildId:f.guildId,startedAt:gap.end,verifiedThrough:gaps[i+1]?.start??t.at,
+  }))});
+  await f.database.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:john}},data:{hasParticipated:true,attendanceStreak:2}});
+  return t;
+}
+
 test('chronological catch-up awards day 3/10/17 bonuses for tiny visits, never charging an unknown participant', options, async () => fixture(async f => {
   const t = await timeline(f,17,Array.from({length:17},(_,day)=>({day})));
   await settleAll(f,t.at);
@@ -138,7 +152,7 @@ test('pausing exactly at the next midnight cannot erase the preceding active day
 }));
 
 for (const observedVisit of [false,true]) {
-  test(`incomplete day freezes streaks without penalty or bonus (verified visit: ${observedVisit})`,options,async()=>fixture(async f=>{
+  test(`a long outage only freezes streaks when there is no verified visit (visit: ${observedVisit})`,options,async()=>fixture(async f=>{
     const t = await timeline(f,4,[{day:0},{day:1},...(observedVisit?[{day:2}]:[]),{day:3}]);
     const gap = new Date(t.days[2].start.getTime()+12*60*60_000);
     await f.database.reputationTrackingRun.update({where:{id:t.runId},data:{verifiedThrough:gap,closedAt:gap}});
@@ -146,11 +160,81 @@ for (const observedVisit of [false,true]) {
       startedAt:new Date(gap.getTime()+60*60_000),verifiedThrough:t.at}});
     await settleAll(f,t.at);
     const rows = await awards(f);
-    assert.equal(rows[2].exempt,true);
-    assert.equal(rows[2].attendanceStreak,2);
-    assert.equal(rows[2].attendanceBonus,0);
+    assert.equal(rows[2].exempt,!observedVisit);
+    assert.equal(rows[2].attendanceStreak,observedVisit?3:2);
+    assert.equal(rows[2].attendanceBonus,observedVisit?5:0);
     assert.equal(rows[2].absencePenalty,0);
     assert.equal(rows[3].attendanceBonus,5);
+  }));
+}
+
+for (const [label,durations,allowed] of [
+  ['exactly five minutes',[5*60000],true],
+  ['five minutes plus one millisecond',[5*60000+1],false],
+  ['six five-minute gaps',Array(6).fill(5*60000),true],
+  ['thirty minutes plus one millisecond',Array(6).fill(5*60000).concat(1),false],
+  ['seven five-minute gaps',Array(7).fill(5*60000),false],
+]) {
+  test(`absence outage tolerance: ${label}`,options,async()=>fixture(async f=>{
+    const t = await outageDay(f,durations);
+    const result = await f.settlement.settleNextClosedDay(f.guildId,t.at);
+    const [award] = await awards(f);
+    assert.equal(result.incomplete,true); // The tolerance never fills missing coverage.
+    assert.equal(award.exempt,!allowed);
+    assert.equal(award.absencePenalty,allowed?5:0);
+    assert.equal(award.absenceStreak,allowed?1:0);
+    assert.equal(award.attendanceStreak,allowed?0:2);
+    assert.equal(award.basePoints,0);
+    assert.equal((await member(f)).balance,allowed?-5:0);
+    const saved = await f.database.reputationSettlement.findUniqueOrThrow({where:{guildId_day:{guildId:f.guildId,day:t.days[0].day}}});
+    assert.equal(saved.verifiedMs,t.at-t.days[0].start-durations.reduce((sum,ms)=>sum+ms,0));
+    assert.equal(await f.settlement.settleNextClosedDay(f.guildId,t.at),null);
+  }));
+}
+
+test('verified attendance and its bonus advance even when the total outage budget is exceeded',options,async()=>fixture(async f=>{
+  const t = await outageDay(f,Array(7).fill(5*60000),true);
+  await settleAll(f,t.at);
+  const [award] = await awards(f);
+  assert.equal(award.exempt,false);assert.equal(award.attendanceStreak,3);
+  assert.equal(award.attendanceBonus,5);assert.equal(award.basePoints,1);assert.equal(award.points,6);
+}));
+
+test('personal pauses still freeze both streaks even with attendance and otherwise tolerated outages',options,async()=>fixture(async f=>{
+  const t = await outageDay(f,[5*60000],true);
+  const pause = new Date(t.days[0].start.getTime()+60*60000+1000);
+  await f.tracking.setTracking(f.guildId,{userId:john,enabled:false},pause);
+  await f.tracking.setTracking(f.guildId,{userId:john,enabled:true},new Date(pause.getTime()+1000));
+  await settleAll(f,t.at);
+  const [award] = await awards(f);
+  assert.equal(award.exempt,true);assert.equal(award.attendanceStreak,2);
+  assert.equal(award.attendanceBonus,0);assert.equal(award.basePoints,1);assert.equal(award.points,1);
+}));
+
+for (const duration of [5*60000,8*60000]) {
+  test(`the whole ${duration}ms midnight-crossing outage is checked on both days`,options,async()=>fixture(async f=>{
+    const t = await timeline(f,2,[]);
+    const from = new Date(t.days[0].end.getTime()-duration/2),to = new Date(from.getTime()+duration);
+    await f.database.reputationTrackingRun.update({where:{id:t.runId},data:{verifiedThrough:from,closedAt:from}});
+    await f.database.reputationTrackingRun.create({data:{id:randomUUID(),guildId:f.guildId,startedAt:to,verifiedThrough:t.at}});
+    await f.database.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:john}},data:{hasParticipated:true,attendanceStreak:2}});
+    await settleAll(f,t.at);
+    const rows = await awards(f),allowed = duration<=5*60000;
+    assert.deepEqual(rows.map(row=>row.exempt),[!allowed,!allowed]);
+    assert.deepEqual(rows.map(row=>row.absenceStreak),allowed?[1,2]:[0,0]);
+    assert.deepEqual(rows.map(row=>row.attendanceStreak),allowed?[0,0]:[2,2]);
+  }));
+}
+
+for (const edge of ['leading','trailing']) {
+  test(`an unbounded ${edge} outage is not assumed short enough to charge absence`,options,async()=>fixture(async f=>{
+    const t = await timeline(f,1,[]);
+    await f.database.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:john}},data:{hasParticipated:true,attendanceStreak:2}});
+    await f.database.reputationTrackingRun.update({where:{id:t.runId},data:edge==='leading'?
+      {startedAt:new Date(t.days[0].start.getTime()+60000)}:{verifiedThrough:new Date(t.at.getTime()-60000)}});
+    await settleAll(f,t.at);
+    const [award] = await awards(f);
+    assert.equal(award.exempt,true);assert.equal(award.attendanceStreak,2);assert.equal(award.absencePenalty,0);
   }));
 }
 

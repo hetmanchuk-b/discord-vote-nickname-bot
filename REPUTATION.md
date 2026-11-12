@@ -63,6 +63,12 @@ Migration `20261111080000_voice_rewards` was applied to the hosted database with
 
 All **305 tests** passed with local database integration, including capped/exact-once credits, paused/floor targets, veto/no-Yes/unverified outcomes, cross-kind reservation/button isolation, erasure, settlement races, legacy schema upgrades/history preservation, and rollback of legacy-style reward debits. Build, type-check, lint, schema validation, fresh local migration deployment and schema-diff checks passed.
 
+## Outage-tolerant streaks
+
+Implemented verified-attendance progression despite global outages, plus absence tolerance of ≤5 minutes per completed gap and ≤30 minutes total per Kyiv day. Personal pauses and pre-policy days remain exempt. Unknown boundary gaps remain conservative, cross-midnight gaps cannot evade the per-outage limit, and daily coverage warnings/voice-time accounting stay exact. No schema migration or command re-registration is needed; the policy applies to subsequent settlements, including unsettled catch-up days, without rewriting completed ledgers.
+
+All **351 tests** passed with disposable local database integration enabled (none skipped), including millisecond boundaries, both gap limits, cross-midnight budgets, DST, unknown edges, pause precedence and bonuses on incomplete days. Type-check, lint and build passed. No hosted migration, registration or bot deployment was performed for this change.
+
 ## Private participant list
 
 `/reputation-all` lists participants and their settled reputation privately, highest balance first with a stable user-ID tie-break. It shows only participant mentions and balances, without pagination or extra statistics. Zero/negative balances and paused participants are included; erased/never-participating identities are excluded, while verified unsettled participation qualifies. Reads do not checkpoint tracking or change balances. Lists exceeding Discord's 2,000-character message limit are attached in full as `reputation-all.txt` instead of being truncated.
@@ -119,7 +125,9 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - Consecutive qualifying attendance days 1–2 pay no bonus; days 3–9 pay +5/day; days 10–16 pay +6/day; days 17–23 pay +7/day. Thereafter the daily bonus increases by +1 each seven days: `5 + floor((attendance streak - 3) / 7)` for streaks of at least 3. No retroactive payment for days 1–2.
 - Only members with previous verified participation receive absence penalties. Completely observed missed days 1–7 cost −5/day; day 8 onward costs −10/day.
 - Attendance resets absence; a genuine missed day resets attendance. Exempt days freeze both counters and neither advance nor break the streak.
-- Any personal pause overlapping the day, or any missing global observation coverage, exempts the entire day from attendance bonuses/absence penalties. Verified time still earns normal base points. Untracked members receive neither bonus nor penalty for untracked days.
+- A verified visit advances attendance and resets absence even on an incompletely observed day. Without a verified visit, count absence only if each completed gap is ≤5 minutes and total missing coverage within the Kyiv day is ≤30 minutes. Both limits are inclusive. Otherwise freeze both streaks without bonus/penalty; unknown or unclosed boundary gaps are not assumed short.
+- Gaps use verified observation timestamps (including lost checkpoint tails), not guessed process downtime. A gap crossing midnight is checked at its full length; only its overlap contributes to each day's daily budget. Incomplete flags and verified voice-time points remain strict—no missing time is filled or rewarded. Already-settled days remain unchanged.
+- Any personal pause overlapping the day still exempts the entire day from attendance bonuses/absence penalties. Verified time still earns normal base points. Untracked members receive neither bonus nor penalty for untracked days.
 - Pause intervals are persisted independently of the current preference, allowing historical settlement after a pause/resume/restart without guessing. Zero-length pause intervals do not exempt a day; midnight boundaries are half-open.
 - Verified participation on an exempt day still establishes that the member has participated, without advancing a streak. Read-only statistics and preference commands alone never establish participation.
 - Balance limits apply to the combined daily result. Streak counters keep advancing at either bound. Daily rows preserve base points, theoretical bonus/penalty, actual signed delta, final balance, exemption flag, and resulting streak counters.
