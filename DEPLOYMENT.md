@@ -121,7 +121,7 @@ The code already subscribes to `GuildVoiceStates`; the bot does not join voice o
 
 ## 6. Complete the backup walkthrough
 
-Follow [BACKUPS.md](BACKUPS.md): configure private GitHub secrets, validate, explicitly run the first encrypted backup, verify it, and test restoration into a separate disposable database. Scheduling and destructive retention stay disabled until you choose to enable them.
+Follow [BACKUPS.md](BACKUPS.md): configure private GitHub secrets, validate, explicitly run the first encrypted backup, verify it, and test restoration into a separate disposable database. Backup scheduling and deletion of old backup archives stay disabled until you choose to enable them; this is separate from raw voice-interval retention.
 
 Neither repository code nor a green synthetic test proves the real bucket/runner/database permissions work. Do not claim a successful recovery plan before the live export/restore test.
 
@@ -147,6 +147,10 @@ Verify with your own account:
 The first activation day is intentionally marked partial: the bot cannot observe earlier hours. A verified visit can advance attendance despite incomplete coverage (unless personally paused or before the policy boundary). Without a verified visit, absence requires every completed gap to be ≤5 minutes and their combined duration within the Kyiv day to be ≤30 minutes; otherwise both streaks freeze. Unknown/unclosed boundary gaps never authorize an absence penalty. Gap length includes unsaved checkpoint tails, and crossing-midnight gaps are checked in full. AFK/Stage/bot participation does not count; muted/deafened members count normally. Unrecorded gaps after crashes/outages are never invented as credit. Do not change the system clock, backdate production records, or force payouts to simulate midnight—use the automated settlement tests instead.
 
 ## 8. Operational checks
+
+**Raw interval retention:** deploying this build with `REPUTATION_TRACKING_ENABLED=true` activates automatic deletion of existing and future expired raw intervals. The cutoff is 14 × 24 hours by interval end time, additionally limited to fully settled history. Startup runs settlement catch-up first; cleanup then drains in 1,000-row batches and normally runs daily. Intervals crossing the age/settlement cutoff remain whole. Daily attendance summaries for heatmaps, balances, streaks, reports and coverage metadata are retained (except normal member erasure). No new migration or command registration is needed. No hosted cleanup has been performed by the agent.
+
+Check the console for the controlled cleanup failure/recovery messages. Cleanup failures retry independently and do not stop payouts. Stopped/disabled bots and delayed settlement can retain raw data longer. Old visit timestamps are permanently removed from the live database; there is no automatic raw archive. Existing backups keep their separate retention policy. Normal PostgreSQL vacuuming can make space reusable without immediately reducing allocated disk size; do not schedule blocking `VACUUM FULL` as a routine bot job.
 
 - Confirm that saved progress survives a normal restart; only verified time counts, and abrupt crashes may lose the recent unsaved tail.
 - Warnings reuse a message: initial alert, hourly ongoing edits, and final recovery edit. No repeated pings. A completely stopped bot cannot announce its own outage; later coverage reports reveal the gap.

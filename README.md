@@ -145,7 +145,7 @@ Production installation can use `npm ci --omit=dev`. Migrations require the deve
 
 ### Voice tracker (disabled by default)
 
-Keep `REPUTATION_TRACKING_ENABLED=false` until deployment checks are complete and you explicitly choose to activate it. This flag gates **tracking, settlement, report delivery, and operational warnings**; historical pagination and member commands remain available with a healthy database. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
+Keep `REPUTATION_TRACKING_ENABLED=false` until deployment checks are complete and you explicitly choose to activate it. This flag gates **tracking, settlement, raw-interval cleanup, report delivery, and operational warnings**; historical pagination and member commands remain available with a healthy database. Enabling later requires `REPUTATION_GUILD_ID` for the single target server and all reviewed migrations. No migrations are applied automatically.
 
 The tracker:
 
@@ -188,6 +188,14 @@ Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestam
 - Queues independent report publication after settlement. Discord failures do not roll back payouts or cause a second payout. Member deletion removes live daily results while retaining the day ledger to prevent replay.
 
 Migration `20261111020000_daily_settlement` must be explicitly approved/applied before deploying this version against an existing database. It adds settlement tables and a watermark; it does not activate tracking or issue payouts by itself.
+
+### Raw interval retention — 14 days
+
+With tracking enabled, startup and daily settlement processing automatically remove expired `reputation_voice_intervals` after catch-up completes. Each row must have ended at least **14 × 24 hours** before the cleanup time and entirely at/before the committed settlement watermark. Intervals crossing either cutoff are retained whole; rows with missing settlement/participation proof are not deleted. One guild-locked transaction deletes at most 1,000 rows, yielding between backlog batches. Cleanup-only retries within the same Kyiv day do not trigger extra tracker checkpoints; a new Kyiv day still gets normal settlement processing.
+
+Daily awards (including attendance duration for calendar heatmaps), settlements, balances, streaks, report snapshots, tracking-run coverage and pause history are preserved. Daily history has no automatic age expiry; `/reputation-delete` still removes the member's personal live history. This is deletion, not merging or archival: expired exact visit timestamps cannot be recovered from the live database. Existing backups are not rewritten, and backup-archive retention remains separate.
+
+**Deploying this build with tracking enabled activates cleanup of existing expired rows too.** No migration or command re-registration is needed. Cleanup failures produce a sanitized console warning and bounded retries without blocking accounting. During normal operation, cleanup runs daily; expired rows can remain longer while the bot is stopped, tracking is disabled, settlement is behind, or a backlog is draining. PostgreSQL may reuse deleted space without immediately shrinking its allocated files; no automatic `VACUUM FULL` is performed.
 
 ### Member commands
 

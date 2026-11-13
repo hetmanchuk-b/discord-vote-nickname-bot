@@ -4,6 +4,7 @@ import { createTrackingStore } from './tracking-store.js';
 import { CHECKPOINT_INTERVAL_MS, VoiceTracker } from './voice-tracker.js';
 import { SettlementScheduler } from './settlement-scheduler.js';
 import { createSettlementStore } from './settlement-store.js';
+import { createIntervalRetentionStore } from './interval-retention.js';
 import { createReportingRuntime } from './reporting.js';
 import { SafeOperationalError } from './warning-details.js';
 import type { WarningDetail } from './warning-details.js';
@@ -68,6 +69,7 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
   const settlements = new SettlementScheduler({
     guildId,
     store: createSettlementStore(),
+    retention: createIntervalRetentionStore(),
     beforeSettlement: async () => {
       await tracker.checkpoint();
       if (tracker.status === 'lease-lost') throw new SafeOperationalError(['tracking-ownership']);

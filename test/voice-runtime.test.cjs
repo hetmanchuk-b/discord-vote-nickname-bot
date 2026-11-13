@@ -6,6 +6,7 @@ const process = require('node:process');
 const { Events, Collection, ChannelType } = require('discord.js');
 const storeModule = require('../dist/reputation/tracking-store.js');
 const settlementModule = require('../dist/reputation/settlement-store.js');
+const retentionModule = require('../dist/reputation/interval-retention.js');
 const reportingModule = require('../dist/reputation/reporting.js');
 const { attachVoiceTracking } = require('../dist/reputation/voice-tracking.js');
 
@@ -14,7 +15,7 @@ const guildId = '111111111111111111';
 test('Discord runtime checkpoints only its configured server and suspends across gateway loss', async t => {
   const previousFlag = process.env.REPUTATION_TRACKING_ENABLED;
   const previousGuild = process.env.REPUTATION_GUILD_ID;
-  const calls = { opened: 0, checkpoints: 0, closed: 0 };
+  const calls = { opened: 0, checkpoints: 0, closed: 0, cleanups: 0 };
   const timers = [];
   t.mock.method(console, 'warn', () => {});
   t.mock.method(reportingModule, 'createReportingRuntime', () => ({
@@ -22,6 +23,9 @@ test('Discord runtime checkpoints only its configured server and suspends across
     channelChanged: async () => {}, stop: async () => {},
   }));
   t.mock.method(settlementModule, 'createSettlementStore', () => ({ settleNextClosedDay: async () => null }));
+  t.mock.method(retentionModule, 'createIntervalRetentionStore', () => ({prune:async id=>{
+    assert.equal(id,guildId);calls.cleanups++;return {deletedCount:0,hasMore:false};
+  }}));
   t.mock.method(storeModule, 'createTrackingStore', () => ({
     openRun: async () => ({ runId: `run-${++calls.opened}`, pausedUserIds: [] }),
     checkpoint: async () => { calls.checkpoints++; },
@@ -46,6 +50,7 @@ test('Discord runtime checkpoints only its configured server and suspends across
     await setImmediate();
     assert.equal(calls.opened, 1);
     assert.equal(runtime.tracker.status, 'tracking');
+    assert.equal(calls.cleanups, 1);
     assert.equal(timers[0].interval, 5 * 60_000);
     const startupCheckpoints = calls.checkpoints;
 

@@ -63,6 +63,14 @@ Migration `20261111080000_voice_rewards` was applied to the hosted database with
 
 All **305 tests** passed with local database integration, including capped/exact-once credits, paused/floor targets, veto/no-Yes/unverified outcomes, cross-kind reservation/button isolation, erasure, settlement races, legacy schema upgrades/history preservation, and rollback of legacy-style reward debits. Build, type-check, lint, schema validation, fresh local migration deployment and schema-diff checks passed.
 
+## Fourteen-day raw interval retention
+
+Automatic raw-interval cleanup is implemented in `src/reputation/interval-retention.ts`, wired into the tracking-gated settlement scheduler after successful catch-up. It deletes only rows ended at least 14 × 24 hours ago and wholly at/before the committed Kyiv-midnight settlement watermark, for members whose participation is already persisted. It uses the shared guild lock and bounded 1,000-row transactions, yields between backlog batches without amplifying tracker writes, and retries maintenance failures independently of accounting health with safe console diagnostics.
+
+Daily awards for historical attendance heatmaps, day ledgers, balances, streaks, report snapshots, observation runs and pauses remain unchanged. Cutoff-crossing/unsettled intervals, unknown participation proof and missing/malformed watermarks are protected. No raw archive is created; existing backups are not rewritten. Self-service erasure still applies to personal daily history. The next deployment with tracking enabled will activate irreversible cleanup, including an existing backlog; no hosted cleanup or deployment has been performed for this feature. No migration or command re-registration is required.
+
+All **389 tests** passed with disposable local database integration enabled (none skipped), including exact age/settlement cutoffs, preserved daily/report history, cross-guild isolation, concurrent batches, rollback/restart, scheduling, safe independent retries and shutdown. Type-check, lint and clean build passed.
+
 ## Required voice-vote reasons
 
 Both `/voice-penalty` and `/voice-reward` require a nonblank `reason` string, trimmed and limited to 1,000 Unicode characters. New requests are validated at command/runtime/storage boundaries. `proposalReason` / `proposal_reason` is separate from internal cancellation codes. Reasons survive restarts, appear during voting and remain in successful results, with Markdown escaping and no mention notifications. Failed/cancelled reasons are discarded; erasure removes authored reasons awaiting final publication and guards uncertain successful publication, while published successful reasons remain public history. Legacy/erased NULL reasons do not produce invented text or prevent an existing poll from finishing.
@@ -314,7 +322,7 @@ Source: https://www.prisma.io/pricing
 3. Channel changes affect pending/unfrozen reports and future/current warnings, not historical published messages or already-frozen in-flight deliveries.
 4. Should any administrative balance adjustments or corrections be allowed? None are currently specified.
 5. Verify provider metering and finalize a backup/export policy. Stage 1 selects Prisma 7.10.1 with the PostgreSQL adapter and explicit versioned migration deployment.
-6. Decide raw session/checkpoint retention versus long-term daily summary retention.
+6. Raw interval retention is now 14 days after settlement; daily graph summaries have no automatic age expiry. Monitor cleanup retries/backlogs and PostgreSQL space reuse. Explicit member erasure remains effective for personal daily history.
 7. Decide how Discord warnings are handled if the configured channel is inaccessible. Stage 2 implements conservative checkpoint/reconnect reconciliation and bounded retries.
 8. Stage 5 resolves erasure/publication races: live rows are read while freezing under the server lock; erasure of an affected member is temporarily rejected while Discord publication is unconfirmed. After marker reconciliation, historical snapshots remain and live erasure can proceed. If access to the original channel is lost, restore access so reconciliation can finish.
 9. Complete GitHub Actions setup: encryption-key custody, six repository secrets, live encrypted backup/verification, full disposable restore, failure notifications, and explicit opt-in scheduling. Manual check/backup/verify and the approved disposable restore have passed; failure notifications and scheduling remain pending, and retention deletion remains separately opt-in.
