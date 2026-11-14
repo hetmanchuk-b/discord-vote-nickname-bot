@@ -85,8 +85,9 @@ test('compact movie embeds separate public-source/community ratings, use a thumb
   assert.equal(embed.fields.find(field => field.name === 'У ролях').value, response.Actors);
   assert.match(embed.fields.find(field => field.name === 'Зовнішні оцінки').value, /IMDb.*7\.6\/10.*85%.*67\/100/);
   assert.match(embed.fields.at(-1).value, /8,3\/10.*4/);
-  assert.equal(payload.components.length, 2);
-  const buttons = payload.components.flatMap(row => row.toJSON().components);
+  assert.equal(payload.components.length, 3);
+  assert.match(payload.components[2].toJSON().components[1].label, /Відгуки \(0\)/);
+  const buttons = payload.components.slice(0, 2).flatMap(row => row.toJSON().components);
   assert.deepEqual(buttons.map(button => button.label), Array.from({ length: 10 }, (_, i) => String(i + 1)));
   assert.ok(buttons.every(button => button.style === ButtonStyle.Secondary && button.custom_id.length <= 100));
   assert.deepEqual(parseMovieButton(buttons[9].custom_id), { postId: id, score: 10 });

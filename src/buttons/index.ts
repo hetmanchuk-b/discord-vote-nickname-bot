@@ -9,6 +9,8 @@ import { PENALTY_BUTTON_PREFIX, REWARD_BUTTON_PREFIX } from '../reputation/voice
 import { handleVoicePoll } from './voice-poll.js';
 import { MOVIE_BUTTON_PREFIX } from '../movies/render.js';
 import { handleMovieRating } from './movie-rating.js';
+import { MOVIE_REVIEW_PREFIX } from '../movies/review-render.js';
+import { handleMovieReviewButton } from '../interactions/movie-review.js';
 
 // Register additional button groups here; the event dispatcher stays unchanged.
 const handlers: ReadonlyMap<string, ButtonHandler> = new Map(Object.entries({
@@ -18,7 +20,8 @@ const handlers: ReadonlyMap<string, ButtonHandler> = new Map(Object.entries({
 
 export async function handleButton(interaction: ButtonInteraction) {
   const handler = handlers.get(interaction.customId) ??
-    (interaction.customId.startsWith(MOVIE_BUTTON_PREFIX) ? handleMovieRating :
+    (interaction.customId.startsWith(MOVIE_REVIEW_PREFIX) ? handleMovieReviewButton :
+      interaction.customId.startsWith(MOVIE_BUTTON_PREFIX) ? handleMovieRating :
       interaction.customId.startsWith(REPORT_PAGE_PREFIX) ? handleReputationPage :
       (interaction.customId.startsWith(PENALTY_BUTTON_PREFIX) || interaction.customId.startsWith(REWARD_BUTTON_PREFIX)) ? handleVoicePoll : undefined);
   if (!handler) {

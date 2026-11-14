@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, escapeMarkd
 import type { MessageCreateOptions, MessageEditOptions } from 'discord.js';
 import { imdbLink, moviePoster } from './metadata.js';
 import type { MovieSnapshot } from './store.js';
+import { movieReviewButtons } from './review-render.js';
 
 export const MOVIE_BUTTON_PREFIX = 'movie:rate:';
 export const movieMarker = (id: string) => `MOVIE:${id}:`;
@@ -49,5 +50,6 @@ export function renderMovie(snapshot: MovieSnapshot): MoviePayload {
       return new ButtonBuilder().setCustomId(`${MOVIE_BUTTON_PREFIX}${snapshot.post.id}:${score}:${snapshot.revision}`).setLabel(String(score)).setStyle(ButtonStyle.Secondary);
     }),
   ));
+  components.push(movieReviewButtons(snapshot.post.id, snapshot.reviewCount ?? 0));
   return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }

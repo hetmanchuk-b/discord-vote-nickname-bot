@@ -5,6 +5,8 @@ import type { MovieMetadata } from './types.js';
 import { renderMovie } from './render.js';
 import type { MoviePayload } from './render.js';
 import type { MoviePost, MovieRequest, MovieStore, MovieVote } from './store.js';
+import { createMovieReviewStore } from './review-store.js';
+import type { MovieReviewContext, MovieReviewEditor, MovieReviewPage, MovieReviewStore, MovieReviewWrite } from './review-store.js';
 
 export interface MovieTransport {
   check(guildId: string, channelId: string): Promise<void>;
@@ -96,6 +98,9 @@ export class MoviePublisher {
 export interface Movies {
   create(request: MovieRequest): Promise<MoviePost>;
   vote(request: MovieVote): Promise<number>;
+  reviewEditor(context: MovieReviewContext): Promise<MovieReviewEditor>;
+  reviewPage(context: MovieReviewContext, page: number, revealVersion?: string): Promise<MovieReviewPage>;
+  writeReview(request: MovieReviewWrite): Promise<'saved' | 'deleted' | 'unchanged'>;
 }
 export class MovieRuntime implements Movies {
   readonly publisher: MoviePublisher;
@@ -103,7 +108,7 @@ export class MovieRuntime implements Movies {
   private pending = new Set<Promise<unknown>>();
   private lookups = new Map<string, Promise<MovieMetadata>>();
   constructor(private readonly store: MovieStore, private readonly lookup: MovieLookup, private readonly transport: MovieTransport,
-    private readonly enabled = true, warn?: () => void) { this.publisher = new MoviePublisher(store, transport, warn); }
+    private readonly enabled = true, warn?: () => void, private readonly reviews: MovieReviewStore = createMovieReviewStore()) { this.publisher = new MoviePublisher(store, transport, warn); }
   start(): Promise<void> { return this.enabled && !this.stopped ? this.publisher.start() : Promise.resolve(); }
   private track<T>(operation: () => Promise<T>): Promise<T> {
     if (this.stopped) return Promise.reject(new MovieError('stopped'));
@@ -134,6 +139,19 @@ export class MovieRuntime implements Movies {
       // Receipt is independent of Discord edits. Delivery retries never cast a vote.
       void this.publisher.wake();
       return score;
+    });
+  }
+  reviewEditor(context: MovieReviewContext): Promise<MovieReviewEditor> {
+    return this.track(() => this.reviews.editor(context));
+  }
+  reviewPage(context: MovieReviewContext, page: number, revealVersion?: string): Promise<MovieReviewPage> {
+    return this.track(() => this.reviews.page(context, page, revealVersion));
+  }
+  writeReview(request: MovieReviewWrite): Promise<'saved' | 'deleted' | 'unchanged'> {
+    return this.track(async () => {
+      const result = await this.reviews.write(request);
+      void this.publisher.wake();
+      return result;
     });
   }
   async stop(): Promise<void> {

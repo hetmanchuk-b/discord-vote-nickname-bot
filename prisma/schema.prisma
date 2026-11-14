@@ -283,6 +283,7 @@ model Movie {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   metadataFetchedAt DateTime @default(now()) @map("metadata_fetched_at") @db.Timestamptz(3)
   ratings           MovieRating[]
+  reviews           MovieReview[]
   posts             MoviePost[]
 
   @@unique([guildId, imdbId])
@@ -301,6 +302,22 @@ model MovieRating {
   @@id([movieId, userId])
   @@index([userId, movieId])
   @@map("movie_ratings")
+}
+
+// Nullable text is a content-free deletion tombstone: stale forms cannot restore it.
+model MovieReview {
+  movieId         String   @map("movie_id") @db.Uuid
+  userId          String   @map("user_id") @db.VarChar(20)
+  text            String?  @db.VarChar(1000)
+  containsSpoilers Boolean @default(false) @map("contains_spoilers")
+  interactionId   String   @map("interaction_id") @db.VarChar(20)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  movie           Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@id([movieId, userId])
+  @@index([movieId, createdAt, userId])
+  @@map("movie_reviews")
 }
 
 model MoviePost {

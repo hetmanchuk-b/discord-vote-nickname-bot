@@ -6,7 +6,7 @@ import { MovieError } from './types.js';
 import type { MovieMetadata } from './types.js';
 
 export type MoviePost = Prisma.MoviePostGetPayload<{ include: { movie: true } }>;
-export interface MovieSnapshot { post: MoviePost; metadata: MovieMetadata; revision: bigint; average: number | null; count: number }
+export interface MovieSnapshot { post: MoviePost; metadata: MovieMetadata; revision: bigint; average: number | null; count: number; reviewCount: number }
 export interface MovieVote {
   postId: string; guildId: string; channelId: string; messageId: string; userId: string; score: number; interactionId: string;
 }
@@ -65,7 +65,8 @@ export function createMovieStore(getDatabase: () => PrismaClient = getReputation
         const post = await tx.moviePost.findUniqueOrThrow({ where: { id }, include });
         if (post.status !== 'active') return null;
         const stats = await tx.movieRating.aggregate({ where: { movieId: post.movieId }, _avg: { score: true }, _count: { _all: true } });
-        return { post, metadata: movieMetadata(post.movie), revision: post.movie.revision, average: stats._avg.score, count: stats._count._all };
+        const reviewCount = await tx.movieReview.count({ where: { movieId: post.movieId, text: { not: null } } });
+        return { post, metadata: movieMetadata(post.movie), revision: post.movie.revision, average: stats._avg.score, count: stats._count._all, reviewCount };
       });
     },
     async delivered(id: string, revision: bigint): Promise<void> {

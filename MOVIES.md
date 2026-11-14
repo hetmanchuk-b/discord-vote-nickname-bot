@@ -11,7 +11,7 @@ The compact embed has:
 - Director/country as inline fields, followed by cast.
 - Separate external ratings (IMDb, Rotten Tomatoes, Metacritic when available).
 - A clearly separate community average (one decimal, Ukrainian formatting) and number of raters. Before the first rating it says there are no ratings, rather than showing 0/10.
-- Two neutral rows of buttons: 1–5 and 6–10. No public button is styled as one person's selected score.
+- Two neutral rows of rating buttons: 1–5 and 6–10, plus a third row for writing/editing and reading reviews. The review button displays the written-review count. No public rating button is styled as one person's selected score.
 
 Missing `N/A` fields/posters are omitted. The title still links to IMDb without a poster. Labels/feedback are Ukrainian; movie metadata stays in OMDb's original language. Discord controls exact sizing and responsive stacking. Public cards do not ping anyone or publish voter identities; each rater receives private confirmation of their effective score.
 
@@ -24,6 +24,20 @@ Missing `N/A` fields/posters are omitted. The title still links to IMDb without 
 - Metadata is fetched once per server/movie and retained in PostgreSQL. Reposts and rating clicks do not call OMDb. External ratings are the stored lookup snapshot, **not live critic scores**. `metadata_fetched_at` records the lookup time for a future refresh feature.
 - The additive `20261111120000_movie_ratings` migration creates `movies`, `movie_ratings` and `movie_posts`. Movie scores are ordinary 1–10 integers, **not reputation quarter-point units**. It does not modify reputation tables or financial values.
 - The schema supports a later movie-list command; **no `/movies` listing command is included yet**.
+
+## Written reviews
+
+Reviews are optional and independent of 1–10 ratings. Anyone who can use a movie card can write one review per movie/account/server, even without a numeric rating. Reposts share the same reviews. The main card never includes review text or authors.
+
+**Написати / змінити відгук** opens a native modal with one paragraph textbox (up to 1,000 UTF-16 code units, matching the application input limit), a prefilled spoiler checkbox, and, for an existing review, an explicit unchecked **Видалити мій відгук** checkbox. Existing text is prefilled. The form explains that the author and any numeric rating will be visible to server participants. Suggest 3–5 sentences: impression, a specific strength, a weakness, and who would enjoy the film. Blank text alone is an error, not an implicit delete. Checking deletion and submitting clears only your written review; the numeric rating remains unchanged.
+
+**Відгуки** opens a private reader, one review per page in original creation order with user-ID tie-breaking. Each page shows the consenting review author, their current numeric rating (or no rating), and the update date. Navigation and editor controls work after a restart without a collector or in-memory session. All reader navigation edits only already-ephemeral messages; main-card controls never replace the public card with a private review.
+
+Spoiler text is withheld from the reader response entirely until **Показати спойлери** is clicked. Consent is bound to the exact submitted review version, not a page number: edits/deletions cannot reveal a different or replacement review. Navigating resets spoiler visibility. User markdown/masked links are escaped and mentions never notify anyone.
+
+Forms carry the version originally opened. A stale form cannot overwrite another edit or restore deleted content; reopen it after a version conflict. Replayed/older submissions do not overwrite a newer operation. Deletion immediately clears stored text/spoiler state but retains a minimal content-free movie/user/interaction/time tombstone to fence old forms. Previously opened private views, copied text and encrypted backups cannot be recalled. `/reputation-delete` does not erase movie data.
+
+The new `20261111130000_movie_reviews` migration adds `movie_reviews` and advances each existing movie's delivery revision once so old cards receive the new controls after deployment. It is transactional; it does not reprice scores, alter reputation, or change movie metadata. This migration was **applied to the hosted database with explicit approval and confirmation that the bot was stopped**. All fourteen migrations are applied and the schema diff is clean. Streaming checksums verified unchanged reputation, movie metadata, ratings and posts across all fifteen existing tables; table OIDs were preserved, each movie delivery revision advanced exactly once, and the empty review table, validated constraints and migration checksum/history were verified. Upload the complete matching build before restarting, not an old build that lacks review controls. No slash command/options, API keys, dependencies or gateway intents change; review support alone does not need command re-registration. The existing `/movie` registration is still required.
 
 ## Reliability and permissions
 
@@ -41,11 +55,11 @@ Movie records/ratings are retained indefinitely, including after a member leaves
 
 Keep the real `OMDB_API_KEY` privately in the local/host environment. Do not commit it, paste it into chat, put it in a Discord message or copy the entire developer `.env` to production. Runtime uses the existing `DATABASE_URL`/small shared lazy Prisma pool. Without a database configuration, movie work is disabled without blocking unrelated commands. Without an OMDb key, already-stored movies and ratings still work; new movie lookups report a configuration error.
 
-**The movie migration was applied to the configured hosted database with explicit approval and confirmation that the bot was stopped.** All thirteen migrations are applied and the schema diff is clean. Before/after streaming row checksums and table OIDs verified that all twelve existing application tables were unchanged. The three new tables were empty, their eight checks/two foreign keys validated, and the new migration checksum/history verified. Slash-command registration and bot deployment/start have not been performed for this feature.
+**The movie migration was applied to the configured hosted database with explicit approval and confirmation that the bot was stopped.** At that initial movie-card cutover, all thirteen migrations were applied and the schema diff was clean. The later written-review migration has also been applied and verified as described above. Before/after streaming row checksums and table OIDs verified that all twelve existing application tables were unchanged. The three new tables were empty, their eight checks/two foreign keys validated, and the new migration checksum/history verified. Slash-command registration and bot deployment/start have not been performed for this feature.
 
 To finish deployment:
 
-1. Other installations must explicitly review/apply the additive migration using `npm run db:migrate` from a trusted checkout with the bot stopped, then verify status/schema. Never reset the database or apply migrations automatically at startup.
+1. The configured host is verified current through `20261111130000_movie_reviews`. Other installations must explicitly review/apply all pending migrations using `npm run db:migrate` from a trusted checkout with the bot stopped, then verify status/schema. Never reset the database or apply migrations automatically at startup.
 2. Build/upload the complete fresh `dist/`, including generated Prisma Client, and matching manifests.
 3. Privately configure `DATABASE_URL` and `OMDB_API_KEY` on the host. No new gateway intents/dependencies are needed.
 4. With explicit approval, run `npm run commands` to replace the global registration list (now **19 commands**, including `/movie`).
