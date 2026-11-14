@@ -12,10 +12,10 @@ const interactionCreate = require('../dist/events/interaction-create.js').defaul
 
 const variant = (text, reactionCount = 0) => ({ text, reactionCount });
 
-test('all eighteen compiled commands load and serialize for deployment', () => {
+test('all nineteen compiled commands load and serialize for deployment', () => {
   const commands = loadCommands();
   assert.deepEqual([...commands.keys()].sort(), [
-    'archive', 'dw', 'nickname-end', 'nickname-manage-result',
+    'archive', 'dw', 'movie', 'nickname-end', 'nickname-manage-result',
     'nickname-start', 'nickname-variants', 'nickname-variants-by',
     'reputation', 'reputation-all', 'reputation-delete', 'reputation-off', 'reputation-on', 'reputation-rules',
     'set-reputation-report', 'voice-penalty', 'voice-reward', 'voice-today', 'yok',

@@ -11,6 +11,7 @@ import type {
 import type { ReputationMembers } from './reputation/member-reputation.js';
 import type { ReputationReports } from './reputation/reporting.js';
 import type { VoicePolls } from './reputation/voice-poll-runtime.js';
+import type { Movies } from './movies/runtime.js';
 
 export interface Command {
   data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder;
@@ -45,6 +46,7 @@ declare module 'discord.js' {
     reputation: ReputationMembers;
     reputationReports: ReputationReports;
     voicePolls: VoicePolls;
+    movies: Movies;
   }
 }
 

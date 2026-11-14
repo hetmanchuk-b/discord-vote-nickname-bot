@@ -48,6 +48,10 @@ The slash-command definitions, both existing button prefixes, and `VP:<id>:activ
 
 Other installations must stop **all** old instances, preserve a verified backup and explicitly approve/apply the migration first. Upload the matching fresh entire `dist/` before restarting one instance. Old binaries are deliberately incompatible with renamed columns; rollback requires a separately reviewed reverse conversion, not just an old build. Conversion overflow fails rather than clamping history. The hosted migration is complete; bot deployment has not been performed for this change. Command definitions/options are unchanged, so no re-registration is needed solely for this cutover.
 
+### Movies: hosted migration applied, registration pending
+
+`20261111120000_movie_ratings` was **applied to the configured hosted database with explicit approval and confirmation that the bot was stopped**. All thirteen migrations are applied and the schema diff is clean. Before/after streaming row checksums and table OIDs verified that all twelve existing application tables were unchanged; the three new tables were empty, eight checks/two foreign keys validated, and migration checksum/history verified. It adds `movies`, `movie_ratings` and `movie_posts` without rewriting reputation data. Other installations must explicitly review/apply it with the bot stopped and verify schema/status. Upload the full matching build, privately configure `OMDB_API_KEY` alongside `DATABASE_URL`, and explicitly refresh registrations (**19 commands**, including `/movie`) before starting one instance. Command registration and bot deployment have not been performed for movies. See [MOVIES.md](MOVIES.md).
+
 ## 2. Register slash commands explicitly
 
 Your local `data/config.json` must contain the correct application client ID and bot token. Then, when you approve updating this application's global command list:
@@ -56,7 +60,7 @@ Your local `data/config.json` must contain the correct application client ID and
 npm run commands
 ```
 
-This contacts Discord and replaces this application's global command registrations with the **18 commands** in the repository. Do not use another bot application's credentials. Refresh Discord/wait for command propagation if new commands do not appear immediately.
+This contacts Discord and replaces this application's global command registrations with the **19 commands** in the repository. Do not use another bot application's credentials. Refresh Discord/wait for command propagation if new commands do not appear immediately.
 
 Do not put the Discord token in GitHub's backup secrets. The backup workflow does not need it.
 
@@ -77,6 +81,8 @@ Example server-only environment (replace placeholders privately):
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
 REPUTATION_GUILD_ID=YOUR_DISCORD_SERVER_ID
 REPUTATION_TRACKING_ENABLED=false
+# Needed for new /movie lookups; configure the real value privately:
+OMDB_API_KEY=YOUR_PRIVATE_OMDB_API_KEY
 ```
 
 Use Discord Developer Mode → right-click the server → **Copy Server ID**. Existing hosting environment variables override `.env`; changing a file will not replace an already-set hosting value.

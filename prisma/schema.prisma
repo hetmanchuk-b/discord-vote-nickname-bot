@@ -263,3 +263,58 @@ model VoiceReputationVote {
   @@index([userId, pollId])
   @@map("voice_reputation_votes")
 }
+
+// Movie ratings are independent of reputation, participation and voice tracking.
+model Movie {
+  id                String   @id @db.Uuid
+  guildId           String   @map("guild_id") @db.VarChar(20)
+  imdbId            String   @map("imdb_id") @db.VarChar(16)
+  title             String   @db.VarChar(180)
+  year              String?  @db.VarChar(24)
+  runtime           String?  @db.VarChar(40)
+  genres            String?  @db.VarChar(180)
+  director          String?  @db.VarChar(180)
+  country           String?  @db.VarChar(120)
+  cast              String?  @db.VarChar(400)
+  plot              String?  @db.VarChar(900)
+  posterUrl         String?  @map("poster_url") @db.VarChar(2048)
+  externalRatings   Json     @map("external_ratings")
+  revision          BigInt   @default(0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  metadataFetchedAt DateTime @default(now()) @map("metadata_fetched_at") @db.Timestamptz(3)
+  ratings           MovieRating[]
+  posts             MoviePost[]
+
+  @@unique([guildId, imdbId])
+  @@index([guildId, createdAt])
+  @@map("movies")
+}
+
+model MovieRating {
+  movieId       String   @map("movie_id") @db.Uuid
+  userId        String   @map("user_id") @db.VarChar(20)
+  score         Int      @db.SmallInt
+  interactionId String   @map("interaction_id") @db.VarChar(20)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  movie         Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@id([movieId, userId])
+  @@index([userId, movieId])
+  @@map("movie_ratings")
+}
+
+model MoviePost {
+  id                String    @id @db.Uuid
+  requestId         String    @unique @map("request_id") @db.VarChar(20)
+  movieId           String    @map("movie_id") @db.Uuid
+  channelId         String    @map("channel_id") @db.VarChar(20)
+  messageId         String?   @unique @map("message_id") @db.VarChar(20)
+  status            String    @default("creating") @db.VarChar(16)
+  deliveredRevision BigInt?   @map("delivered_revision")
+  lastAttemptAt     DateTime? @map("last_attempt_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  movie             Movie     @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@index([status, lastAttemptAt, createdAt])
+  @@map("movie_posts")
+}

@@ -10,6 +10,7 @@ A simple Discord bot for starting nickname voting threads on a Discord server.
 - Written in strict TypeScript using Discord.js
 - Reaction-weighted, interactive finalist selection and 24-hour Discord polls
 - Archive notes, download social-media videos, and generate playful percentage ratings
+- IMDb movie cards with poster thumbnails, movie details and persistent, changeable 1–10 community ratings
 
 ## Requirements
 
@@ -65,6 +66,12 @@ Use `/nickname-end` in the suggestion thread to open interactive finalist select
 
 Use the `/nickname-manage-result` slash command to end the poll and set the final nickname for the selected member.
 
+## Movies
+
+`/movie imdb:<IMDb movie URL>` posts a compact card with a poster thumbnail, clickable title/year, runtime, genres, plot, director, country, cast, external ratings, and separate community average/count. Anyone on the server can rate using two rows of 1–10 buttons; one changeable rating per person/movie is stored in PostgreSQL, shared across reposts. Metadata is cached, and ratings do not need voice participation or passive tracking. See [MOVIES.md](MOVIES.md) for rules, privacy, permissions and recovery.
+
+New lookups need a private `OMDB_API_KEY`. The additive migration `20261111120000_movie_ratings` was **applied to the hosted database with explicit approval and confirmation that the bot was stopped**. All thirteen migrations are applied and the schema diff is clean; streaming checksums/table OIDs confirmed unchanged existing application data. Registration/deployment remain pending explicit approval; the registry now contains **19 commands**. A future movie-list command is not included yet. No new dependency is required.
+
 ## Development
 
 ```bash
@@ -89,6 +96,7 @@ Configuration is read from `data/config.json` at runtime, relative to the projec
 - `src/types.ts` — command, variant, session, and Discord client collection types
 - `src/vendor/` — declarations for the untyped media downloader dependency
 - `src/reputation/` — database access, voice tracking, Kyiv-day accounting, settlement, and report settings
+- `src/movies/` — validated OMDb lookup, persistent movie ratings, compact cards and recoverable delivery
 - `prisma/` — database schema and versioned migrations
 - `src/generated/` — generated Prisma Client (ignored; included in compiled `dist/`)
 - `test/` — offline tests against the compiled output (no Discord login required)
