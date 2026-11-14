@@ -10,6 +10,9 @@ datasource db {
   provider = "postgresql"
 }
 
+// Monetary Int fields are integer quarter-point units (4 units = 1 displayed
+// point). Durations, counts and streaks are NOT scaled. *_units column names
+// prevent legacy whole-point binaries from silently interpreting the new data.
 // Stage 5: durable publication snapshots and reusable operational warnings.
 model ReputationGuild {
   guildId         String   @id @map("guild_id") @db.VarChar(20)
@@ -36,7 +39,7 @@ model ReputationMember {
   userId           String    @map("user_id") @db.VarChar(20)
   isTracking       Boolean   @default(true) @map("is_tracking")
   trackingSince    DateTime? @map("tracking_since") @db.Timestamptz(3)
-  balance          Int       @default(0)
+  balance          Int       @default(0) @map("balance_units")
   hasParticipated  Boolean   @default(false) @map("has_participated")
   attendanceStreak Int       @default(0) @map("attendance_streak")
   absenceStreak    Int       @default(0) @map("absence_streak")
@@ -84,12 +87,13 @@ model ReputationTrackingRun {
 
 // Unrounded, half-open UTC intervals. Daily Kyiv boundaries are applied at settlement.
 model ReputationVoiceInterval {
-  id        BigInt   @id @default(autoincrement())
-  guildId   String   @map("guild_id") @db.VarChar(20)
-  userId    String   @map("user_id") @db.VarChar(20)
-  runId     String   @map("run_id") @db.Uuid
-  startedAt DateTime @map("started_at") @db.Timestamptz(3)
-  endedAt   DateTime @map("ended_at") @db.Timestamptz(3)
+  id          BigInt   @id @default(autoincrement())
+  guildId     String   @map("guild_id") @db.VarChar(20)
+  userId      String   @map("user_id") @db.VarChar(20)
+  runId       String   @map("run_id") @db.Uuid
+  startedAt   DateTime @map("started_at") @db.Timestamptz(3)
+  endedAt     DateTime @map("ended_at") @db.Timestamptz(3)
+  earningRate Int      @default(4) @map("earning_rate") @db.SmallInt
 
   member ReputationMember      @relation(fields: [guildId, userId], references: [guildId, userId], onDelete: Cascade)
   run    ReputationTrackingRun @relation(fields: [runId], references: [id], onDelete: Restrict)
@@ -110,7 +114,7 @@ model ReputationSettlement {
   verifiedMs    Int      @map("verified_ms")
   incomplete    Boolean
   activityMs    BigInt   @map("activity_ms")
-  pointsAwarded Int      @map("points_awarded")
+  pointsAwarded Int      @map("points_awarded_units")
 
   guild  ReputationGuild        @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
   awards ReputationDailyAward[]
@@ -129,11 +133,12 @@ model ReputationDailyAward {
   userId           String  @map("user_id") @db.VarChar(20)
   day              String  @db.VarChar(10)
   eligibleMs       Int     @map("eligible_ms")
-  points           Int
-  balanceAfter     Int     @map("balance_after")
-  basePoints       Int     @default(0) @map("base_points")
-  attendanceBonus  Int     @default(0) @map("attendance_bonus")
-  absencePenalty   Int     @default(0) @map("absence_penalty")
+  soloMs           Int     @default(0) @map("solo_ms")
+  points           Int     @map("points_units")
+  balanceAfter     Int     @map("balance_after_units")
+  basePoints       Int     @default(0) @map("base_points_units")
+  attendanceBonus  Int     @default(0) @map("attendance_bonus_units")
+  absencePenalty   Int     @default(0) @map("absence_penalty_units")
   attendanceStreak Int     @default(0) @map("attendance_streak")
   absenceStreak    Int     @default(0) @map("absence_streak")
   exempt           Boolean @default(false)
@@ -142,7 +147,7 @@ model ReputationDailyAward {
   settlement ReputationSettlement @relation(fields: [guildId, day], references: [guildId, day], onDelete: Restrict)
 
   @@id([guildId, userId, day])
-  @@index([guildId, day, points, eligibleMs, userId])
+  @@index([guildId, day, points, eligibleMs, userId], map: "reputation_daily_awards_ranking_idx")
   @@map("reputation_daily_awards")
 }
 
@@ -165,7 +170,7 @@ model ReputationReport {
   lastAttemptAt DateTime?              @map("last_attempt_at") @db.Timestamptz(3)
   publishedAt   DateTime?              @map("published_at") @db.Timestamptz(3)
   activityMs    BigInt                 @default(0) @map("activity_ms")
-  pointsAwarded Int                    @default(0) @map("points_awarded")
+  pointsAwarded Int                    @default(0) @map("points_awarded_units")
   entryCount    Int                    @default(0) @map("entry_count")
 
   guild      ReputationGuild         @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
@@ -184,8 +189,8 @@ model ReputationReportEntry {
   userId       String @map("user_id") @db.VarChar(20)
   position     Int
   eligibleMs   Int    @map("eligible_ms")
-  points       Int
-  balanceAfter Int    @map("balance_after")
+  points       Int    @map("points_units")
+  balanceAfter Int    @map("balance_after_units")
 
   report ReputationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
@@ -221,7 +226,7 @@ model VoiceReputationPoll {
   voiceChannelId String                @map("voice_channel_id") @db.VarChar(20)
   textChannelId  String                @map("text_channel_id") @db.VarChar(20)
   messageId      String?               @unique @map("message_id") @db.VarChar(20)
-  amount         Int
+  amount         Int                   @map("amount_units")
   kind           String                @default("penalty") @db.VarChar(8)
   status         String                @default("creating") @db.VarChar(16)
   reason         String?               @db.VarChar(32)
@@ -230,9 +235,9 @@ model VoiceReputationPoll {
   startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
   endsAt         DateTime?             @map("ends_at") @db.Timestamptz(3)
   closedAt       DateTime?             @map("closed_at") @db.Timestamptz(3)
-  appliedAmount  Int                   @default(0) @map("applied_amount")
-  balanceAfter   Int?                  @map("balance_after")
-  balanceBefore  Int?                  @map("balance_before")
+  appliedAmount  Int                   @default(0) @map("applied_amount_units")
+  balanceAfter   Int?                  @map("balance_after_units")
+  balanceBefore  Int?                  @map("balance_before_units")
   noVoterIds     String[]              @default([]) @map("no_voter_ids")
   publishing     Boolean               @default(false)
   publishedAt    DateTime?             @map("published_at") @db.Timestamptz(3)

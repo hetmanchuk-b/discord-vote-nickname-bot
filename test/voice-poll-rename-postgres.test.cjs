@@ -78,6 +78,8 @@ test('neutral rename preserves all poll/vote data and OIDs and resumes both orig
     await client.query(reasons.replace(/^BEGIN;\r?\n/m,'').replace(/^COMMIT;\r?\n?/m,''));
     assert.deepEqual((await client.query('SELECT * FROM voice_reputation_polls ORDER BY id')).rows,
       after.map(row=>({...row,proposal_reason:null})));
+    const quarters = await fs.readFile(path.join(root,'20261111110000_quarter_points_and_solo_rate','migration.sql'),'utf8');
+    await client.query(quarters.replace(/^BEGIN;\r?\n/m,'').replace(/^COMMIT;\r?\n?/m,''));
     await client.query('COMMIT');committed = true;
 
     scoped = new PrismaClient({ adapter: new PrismaPg({ connectionString:url,max:1 },{schema}), log:[] });
@@ -95,8 +97,8 @@ test('neutral rename preserves all poll/vote data and OIDs and resumes both orig
       assert.equal(result.status,'succeeded');
       assert.equal(result.appliedAmount,poll.kind==='penalty'?50:20);
     }
-    assert.equal((await scoped.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId,userId:target}}})).balance,50);
-    assert.equal((await scoped.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId,userId:recipient}}})).balance,5000);
+    assert.equal((await scoped.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId,userId:target}}})).balance,200);
+    assert.equal((await scoped.reputationMember.findUniqueOrThrow({where:{guildId_userId:{guildId,userId:recipient}}})).balance,20000);
     assert.equal((await store.finish(reward,null)).appliedAmount,20); // Still idempotent after upgrade.
     assert.equal((await store.get(published)).appliedAmount,50);
     assert.deepEqual((await store.get(failed)).noVoterIds,[voter]);

@@ -150,7 +150,7 @@ Keep `REPUTATION_TRACKING_ENABLED=false` until deployment checks are complete an
 The tracker:
 
 - Counts humans in regular voice channels, including solo, muted, and deafened members; excludes bots, Stage channels, and the configured AFK channel.
-- Captures joins/leaves and eligibility changes, then serializes writes. Normal-channel moves and mute/deafen changes do not cause extra database writes.
+- Captures joins/leaves and eligibility changes, then serializes writes. Normal-channel moves checkpoint only when eligibility or solo/group earning rates change; mute/deafen alone does not cause extra database writes.
 - Saves unrounded UTC intervals at five-minute checkpoints and relevant transitions. Kyiv-day splitting and rounding happen at settlement, not on each visit.
 - Supports `/reputation-on` and `/reputation-off` with persistent `is_tracking`. Pausing preserves earlier recorded time; resuming never backfills a pause.
 - Records coverage even when voice channels are empty, allowing later reports to distinguish no activity from missing observations.
@@ -161,9 +161,19 @@ The tracker:
 
 Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestamp. Status changes feed the reusable warning message described below and are logged without driver credentials.
 
+### Quarter-points and 25% solo rate — hosted schema updated
+
+Solo time earns **0.25 points per 10 minutes**. With another human in the same regular voice channel it earns **1 point per 10 minutes**. Bots do not count as company; muted/deafened and personally paused humans do. Occupancy changes checkpoint the old rate before switching, including moves where the eligible user list stays the same. No unobserved time is invented.
+
+Solo/group time is combined per Kyiv day, then rounded down once to the nearest **0.25 points**, with no carry. Thus **30 minutes solo + 10 minutes group = 1.75 points**, before attendance bonuses. Group time can earn 0.25 points per 2.5 minutes. Streak qualification uses actual verified time, not weighted time; attendance bonuses and absence penalties keep their displayed values. Limits remain −500…5,000 and vote choices remain 10/50/100.
+
+Storage uses integer quarter-point units; displayed points are units / 4. Migration `20261111110000_quarter_points_and_solo_rate` multiplies all existing monetary values/snapshots/audits by four and renames physical columns to `*_units` so old binaries cannot misread them. It adds interval `earning_rate` (1 solo / 4 full) and daily `solo_ms` while preserving actual durations and streaks. Historical occupancy is unknown, so existing intervals retain their full earning rate; their default `solo_ms=0` is not proof of company. Completed ledgers are not replayed or repriced.
+
+**The hosted migration was applied with explicit approval and confirmation that the bot was stopped.** All twelve migrations are applied and the schema diff is clean. Streaming before/after checksums across all twelve application tables verified preserved displayed financial values, IDs, poll state, durations, streaks, coverage and metadata; table OIDs, legacy rate defaults and the migration checksum were also verified. Other installations must stop every old instance, preserve a verified backup and explicitly apply the migration first. Deploy the matching complete `dist/` before restarting a single instance; bot deployment has not been performed for this change. Never run old code against the converted database or manually rescale values twice. No new command or option is introduced; this change alone needs no command re-registration.
+
 ### Attendance bonuses and absence penalties
 
-- Any positive verified eligible voice time qualifies as attendance, even under 10 minutes. Ordinary +1 per 10 accumulated minutes still applies.
+- Any positive verified eligible voice time qualifies as attendance, even under 10 minutes. Voice-time points use the solo/group rates below; attendance qualification itself is unchanged.
 - Daily attendance bonuses: days 1–2: none; days 3–9: +5/day; days 10–16: +6/day; days 17–23: +7/day; then another +1 per seven days. There is no retroactive payout for days 1–2.
 - Only members who have previously participated can receive absence penalties: missed days 1–7: −5/day; day 8 onward: −10/day. Attendance resets absence; a genuine missed day resets attendance.
 - Any positive verified visit advances attendance and resets absence, even if global tracking was incomplete. Without a verified visit, absence is counted only when each completed observation gap is **≤5 minutes** and their combined overlap with that **Europe/Kyiv day is ≤30 minutes**. Exceeding either limit, or an unknown/unclosed boundary gap, freezes both streaks without bonus/penalty.
@@ -179,7 +189,7 @@ Coverage is `[started_at, verified_through)`, not the run's `closed_at` timestam
 ### Daily settlement (gated with tracking)
 
 - Wakes at **00:00 Europe/Kyiv**, accounting for 23/25-hour DST days. Startup catch-up processes missed days in chronological order from the first tracking day—not before activation.
-- Flushes the tracker before closing eligible days, clips midnight-spanning intervals, sums all visits, and awards `floor(eligible milliseconds / 600000)` per member/day. Remainders never carry forward.
+- Flushes the tracker before closing eligible days, clips midnight-spanning intervals, sums all visits, and awards `floor((4 × group milliseconds + solo milliseconds) / 600000) / 4` per member/day. Remainders smaller than 0.25 points never carry forward.
 - Uses one transaction for bounded balance changes, participation/streak updates, unique server/day ledger, member/day results, and the settled-through watermark. Retrying after a timeout or running concurrent workers cannot repay a completed day.
 - Saves each member's post-payout balance so later payouts do not change earlier daily results. Zero-point activity is retained internally but is not an earning report entry.
 - Records coverage duration and incomplete-tracking flags, including partial activation days and fully offline missed days. Previously earned time still settles even if the member has since paused tracking.
@@ -205,7 +215,7 @@ Apply migration `20261111030000_member_controls` to the intended database before
 | --- | --- | --- |
 | `/reputation [user]` | Settled balance; defaults to the caller | Public |
 | `/reputation-all` | Participants and their settled reputation, highest first; no pagination | Ephemeral |
-| `/voice-today [user]` | Verified time, pending whole points, tracking status, and incomplete-data warnings for the current Kyiv day | Public |
+| `/voice-today [user]` | Verified time, pending quarter-points, tracking status, and incomplete-data warnings for the current Kyiv day | Public |
 | `/reputation-off` | Pause only the caller; preserve earlier time and balance | Ephemeral |
 | `/reputation-on` | Resume only the caller without retroactive pause credit | Ephemeral |
 | `/reputation-rules` | Earning, settlement, channel, downtime, and deletion rules | Ephemeral |

@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Command } from '../types.js';
+import { formatPoints } from './point-units.js';
 import { formatVoiceTime } from '../utils/format-voice-time.js';
 import { DELETION_CONFIRMATION_MS, DELETE_CANCEL_ID, DELETE_CONFIRM_ID, deletionConfirmations } from './deletion-confirmations.js';
 import type { DeletionConfirmations } from './deletion-confirmations.js';
@@ -22,12 +23,12 @@ function rulesEmbed() {
     .setColor(0x5865F2)
     .setTitle('🎙 Правила голосової репутації')
     .addFields(
-      { name: 'Як заробляти', value: '10 накопичених хвилин = 1 бал. Окремі відвідування протягом дня додаються. Наодинці, з вимкненим мікрофоном або звуком — повна ставка. Баланс обмежений від −500 до 5 000.' },
+      { name: 'Як заробляти', value: 'З іншою людиною в тому самому голосовому каналі: 10 хвилин = 1 бал. Наодинці: 10 хвилин = 0,25 бала. Час за день додається, підсумок округлюється вниз до 0,25 бала. Боти не є компанією; люди з особистою паузою рахуються як співрозмовники. Вимкнений мікрофон або звук не змінюють ставку. Баланс: −500…5 000.' },
       { name: 'Бонус за присутність', value: 'Будь-який додатний перевірений час рахується як присутність. Дні серії 1–2: без бонусу; 3–9: +5 щодня; 10–16: +6; 17–23: +7; далі ще +1 кожні 7 днів. Бонус додається до балів за хвилини, без виплат заднім числом.' },
       { name: 'Пропуски', value: 'Лише після першої участі: пропущені дні 1–7 дають −5 щодня, з 8-го — −10. Присутність скидає серію пропусків; пропуск скидає серію присутності.' },
       { name: 'Захищені дні', value: 'Особиста пауза хоч частину дня заморожує обидві серії без бонусу/штрафу. Перевірений візит просуває серію присутності попри збої. Без візиту пропуск рахується лише за достатнього спостереження: кожен завершений розрив ≤5 хв, разом ≤30 хв за київський день. Інакше обидві серії заморожені. Непідтверджений час не дає балів; перевірений час до паузи зберігається.' },
       { name: 'Що не враховується', value: 'Боти, AFK-канал сервера, Stage-канали, періоди особистої паузи та непідтверджений час під час збоїв.' },
-      { name: 'Коли зараховуються бали', value: 'О 00:00 Europe/Kyiv за попередній календарний день. Неповні 10 хвилин відкидаються, а не переносяться. Після збою зарахування може бути відкладене.' },
+      { name: 'Коли зараховуються бали', value: 'О 00:00 Europe/Kyiv за попередній календарний день. Залишок менше 0,25 бала відкидається, а не переноситься. Після збою зарахування може бути відкладене.' },
       { name: 'Перевірка та керування', value: '`/reputation [user]` — зарахований баланс. `/voice-today [user]` — перевірений час і очікувані бали. `/reputation-off` та `/reputation-on` — пауза/відновлення без втрати попереднього прогресу. Відстеження типово увімкнене.' },
       { name: 'Нагорода та штраф голосуванням', value: '`/voice-penalty user amount reason` або `/voice-reward user amount reason` — штраф/нагорода 10, 50 або 100 балів. На початку потрібні чотири людини в одному голосовому каналі. Голосування триває 120 секунд; зараховуються лише голоси людей у початковому каналі наприкінці. Адресат не голосує. Потрібне хоча б одне «Так» і жодного «Ні». У разі невдачі оприлюднюються лише зараховані голоси «Ні». Пауза не заважає голосуванням. Баланс обмежено −500…5 000; показується фактична зміна. Причина обов’язкова (до 1 000 символів) і показується під час голосування та після успіху.' },
       { name: 'Видалення', value: '`/reputation-delete` потребує підтвердження протягом 60 секунд. Баланс, обидві серії та живі дані скидаються; облік вимикається до `/reputation-on`. Мінімальний запис про вимкнений облік, опубліковані звіти, результати голосувань та наявні резервні копії залишаються. Незавершені голосування щодо вас скасовуються; приватні голоси видаляються. Відновлення починається з нуля. Якщо доставка поточного звіту ще підтверджується, видалення потрібно повторити після її відновлення.' },
@@ -81,7 +82,7 @@ export function createMemberCommand(action: MemberCommand, confirmations = delet
         const members = interaction.client.reputation;
         if (action === 'all') {
           const participants = await members.getAll(interaction.guildId);
-          const content = participants.map(member => `<@${member.userId}> — ${member.balance.toLocaleString('uk-UA')}`).join('\n');
+          const content = participants.map(member => `<@${member.userId}> — ${formatPoints(member.balance)}`).join('\n');
           return await interaction.editReply({
             ...(content.length > 2000 ? {
               files: [new AttachmentBuilder(Buffer.from(content, 'utf8'), { name: 'reputation-all.txt' })],
@@ -93,7 +94,7 @@ export function createMemberCommand(action: MemberCommand, confirmations = delet
           const balance = await members.getBalance(interaction.guildId, target.id);
           return await interaction.editReply({
             embeds: [new EmbedBuilder().setColor(0x57F287).setTitle('🏅 Репутація')
-              .setDescription(`<@${target.id}>\n**${balance.toLocaleString('uk-UA')}** балів`)
+              .setDescription(`<@${target.id}>\n**${formatPoints(balance)}** балів`)
               .setFooter({ text: 'Зарахований баланс. Сьогоднішні очікувані бали ще не включено.' })],
             allowedMentions: { parse: [] },
           });
@@ -109,11 +110,11 @@ export function createMemberCommand(action: MemberCommand, confirmations = delet
               .setDescription([`<@${target.id}>`, ...warnings].join('\n'))
               .addFields(
                 { name: 'Перевірений час', value: formatVoiceTime(stats.eligibleMs), inline: true },
-                { name: 'За голосовий час (до ліміту)', value: `+${stats.pendingPoints} балів`, inline: true },
+                { name: 'За голосовий час (до ліміту)', value: `+${formatPoints(stats.pendingPoints)} балів`, inline: true },
                 { name: 'Особистий облік', value: stats.isTracking ? 'Tracking enabled' : 'Tracking paused' },
                 { name: 'Серія присутності (зарахована)', value: `${stats.attendanceStreak ?? 0} дн.`, inline: true },
                 { name: 'Серія пропусків (зарахована)', value: `${stats.absenceStreak ?? 0} дн.`, inline: true },
-              ).setFooter({ text: 'Бонус/штраф визначається о 00:00 Europe/Kyiv. Серії — за останній зарахований день; неповні 10 хвилин не переносяться.' })],
+              ).setFooter({ text: 'Бонус/штраф визначається о 00:00 Europe/Kyiv. Серії — за останній зарахований день; залишок менше 0,25 бала не переноситься.' })],
             allowedMentions: { parse: [] },
           });
         }

@@ -42,6 +42,12 @@ The slash-command definitions, both existing button prefixes, and `VP:<id>:activ
 
 `20261111100000_voice_poll_reasons` was **applied to the configured hosted database with explicit approval and confirmation that the bot was stopped**. All eleven migrations are applied and the Prisma schema diff is clean; verification confirmed unchanged poll/vote/member rows, preserved table OIDs, NULL historical reasons, a validated check constraint and a matching migration checksum. It adds `proposal_reason` (up to 1,000 Unicode characters) without rewriting existing records; historical reasons remain NULL. Other installations must stop the bot and explicitly approve/apply this migration first. Deploy the matching complete `dist/` and explicitly run `npm run commands` before restarting; neither registration nor bot deployment has been performed for this feature. Both vote commands now require a `reason` string, so their existing global definitions must be refreshed (still **18 commands**). The reason is shown during voting and retained in successful results. Existing buttons/markers remain compatible; published history and balances are preserved.
 
+### Quarter-point/solo-rate cutover: hosted migration applied
+
+`20261111110000_quarter_points_and_solo_rate` was **applied to the configured hosted database with explicit approval and confirmation that the bot was stopped**. All twelve migrations are applied and the schema diff is clean. Streaming checksums across all twelve application tables verified preserved displayed financial values, identities, poll state, durations, streaks, coverage and metadata. Table OIDs, legacy full-rate defaults, zero historical solo classification and the migration checksum also matched. It converts financial values to integer quarter units (multiply ×4 once), renames physical money columns to `*_units`, and adds interval earning rates/daily solo duration. Public values and historical snapshots stay numerically the same after decoding; existing intervals keep their full rate because past room occupancy was not recorded. Actual time/streak counters are not scaled.
+
+Other installations must stop **all** old instances, preserve a verified backup and explicitly approve/apply the migration first. Upload the matching fresh entire `dist/` before restarting one instance. Old binaries are deliberately incompatible with renamed columns; rollback requires a separately reviewed reverse conversion, not just an old build. Conversion overflow fails rather than clamping history. The hosted migration is complete; bot deployment has not been performed for this change. Command definitions/options are unchanged, so no re-registration is needed solely for this cutover.
+
 ## 2. Register slash commands explicitly
 
 Your local `data/config.json` must contain the correct application client ID and bot token. Then, when you approve updating this application's global command list:
@@ -138,8 +144,8 @@ Restart the bot once. This activates tracking, settlement, report delivery, and 
 Verify with your own account:
 
 1. Join a normal voice channel; solo participation counts.
-2. Spend at least 10 accumulated minutes there, across visits if desired.
-3. `/voice-today` should include verified time and pending whole points (it requests an on-demand checkpoint).
+2. Spend at least 10 accumulated solo minutes (0.25 base points), or 10 group minutes (1 base point), across visits if desired. Bots do not count as company; another human in the same room does, even if personally paused.
+3. `/voice-today` should include verified time and pending quarter-points (it requests an on-demand checkpoint).
 4. `/reputation` does **not** add today's pending points before settlement.
 5. At 00:00 **Europe/Kyiv**, the previous day's verified time settles and the daily embed appears.
 6. If there are more than ten positive earners, anyone can navigate shared pages. Snapshot balances are the totals at that day's settlement, not their later live balances.

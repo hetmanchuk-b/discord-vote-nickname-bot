@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'disc
 import type { MessageEditOptions } from 'discord.js';
 import type { DailyReport, ReportSnapshot } from './report-store.js';
 import { formatVoiceTime } from '../utils/format-voice-time.js';
+import { formatPoints } from './point-units.js';
 import { REPORT_PAGE_SIZE } from './report-pagination.js';
 
 export const REPORT_PAGE_PREFIX = 'reputation:page:';
@@ -28,12 +29,12 @@ export function renderReport({ report, entries, page }: ReportSnapshot, delivery
     report.incomplete ? 'No verified activity recorded' : 'No activity recorded');
   const embed = new EmbedBuilder().setColor(report.incomplete ? 0xFEE75C : 0x57F287)
     .setTitle(`🎙 Голосова репутація — ${report.day}`)
-    .setDescription([...description, `**Зараховано:** ${report.pointsAwarded} балів · **Учасників із балами:** ${report.entryCount}`].join('\n'))
+    .setDescription([...description, `**Зараховано:** ${formatPoints(report.pointsAwarded)} балів · **Учасників із балами:** ${report.entryCount}`].join('\n'))
     .setFooter({ text: `${reportMarker(report.id, true)} · Сторінка ${page + 1}/${pages} · Europe/Kyiv` });
   for (const entry of entries) {
     embed.addFields({
-      name: `#${entry.position + 1} · +${entry.points} балів`,
-      value: `<@${entry.userId}> · ${formatVoiceTime(entry.eligibleMs)} · Баланс: **${entry.balanceAfter}**`,
+      name: `#${entry.position + 1} · +${formatPoints(entry.points)} балів`,
+      value: `<@${entry.userId}> · ${formatVoiceTime(entry.eligibleMs)} · Баланс: **${formatPoints(entry.balanceAfter)}**`,
     });
   }
   const components = pages > 1 ? [new ActionRowBuilder<ButtonBuilder>().addComponents(

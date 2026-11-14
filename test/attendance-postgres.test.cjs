@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const process = require('node:process');
 const { randomInt, randomUUID } = require('node:crypto');
-const { createReputationDatabase } = require('../dist/reputation/database.js');
+const { createReputationDatabase } = require('./helpers/point-test-database.cjs');
 const { createTrackingStore } = require('../dist/reputation/tracking-store.js');
 const { createSettlementStore } = require('../dist/reputation/settlement-store.js');
 const { createReportStore } = require('../dist/reputation/report-store.js');
@@ -16,8 +16,8 @@ const nathan = '222222222222222222';
 async function fixture(callback) {
   const database = createReputationDatabase(url);
   const guildId = `${Date.now()}${randomInt(100000,999999)}`;
-  const tracking = createTrackingStore(() => database);
-  const settlement = createSettlementStore(() => database);
+  const tracking = createTrackingStore(() => database.raw);
+  const settlement = createSettlementStore(() => database.raw);
   try { await callback({ database, guildId, tracking, settlement }); }
   finally {
     try {
@@ -273,7 +273,7 @@ test('positive bonus reports support sub-ten-minute visits and negative balances
   await f.database.reputationMember.update({where:{guildId_userId:{guildId:f.guildId,userId:john}},data:{balance:-20,hasParticipated:true,attendanceStreak:2}});
   await settleAll(f,t.at);
   await f.database.reputationGuild.update({where:{guildId:f.guildId},data:{reportChannelId:'333333333333333333'}});
-  const reports = createReportStore(()=>f.database);
+  const reports = createReportStore(()=>f.database.raw);
   const [report] = await reports.pending(f.guildId);
   await reports.attachMessage(report.id,'333333333333333333',f.guildId);
   await reports.prepare(report.id);

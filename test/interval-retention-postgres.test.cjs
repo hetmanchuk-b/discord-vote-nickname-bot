@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const process=require('node:process');
 const {randomInt,randomUUID}=require('node:crypto');
-const {createReputationDatabase}=require('../dist/reputation/database.js');
+const {createReputationDatabase}=require('./helpers/point-test-database.cjs');
 const {createIntervalRetentionStore,RAW_INTERVAL_RETENTION_MS,INTERVAL_RETENTION_BATCH_SIZE}=require('../dist/reputation/interval-retention.js');
 const {createSettlementStore}=require('../dist/reputation/settlement-store.js');
 const {createReportStore}=require('../dist/reputation/report-store.js');
@@ -16,7 +16,7 @@ const at=new Date('2026-11-21T12:00:00Z');
 const cutoff=new Date(at.getTime()-RAW_INTERVAL_RETENTION_MS);
 async function fixture(callback){
   const db=createReputationDatabase(url),guildId=`${Date.now()}${randomInt(100000,999999)}`,runId=randomUUID();
-  const store=createIntervalRetentionStore(()=>db);
+  const store=createIntervalRetentionStore(()=>db.raw);
   try{
     await db.reputationGuild.create({data:{guildId,settledThrough:kyivDay('2026-11-20').end,reportChannelId:'333333333333333333'}});
     let state={balance:0,hasParticipated:false,attendanceStreak:0,absenceStreak:0},date='2026-11-01';
@@ -63,18 +63,18 @@ test('retention deletes only fully ended expired raw rows; daily graphs, balance
   const today=await f.interval(at);
   const unenrolled=await f.interval(new Date(cutoff.getTime()-1),unknown);
   const foreign=await other.interval(new Date(cutoff.getTime()-1));
-  const reports=createReportStore(()=>f.db),[report]=await reports.pending(f.guildId);
+  const reports=createReportStore(()=>f.db.raw),[report]=await reports.pending(f.guildId);
   await reports.attachMessage(report.id,'333333333333333333','444444444444444444');
   await reports.prepare(report.id);await reports.finish(report.id);
-  const before=await history(f),list=await createMemberStore(()=>f.db).getAll(f.guildId);
+  const before=await history(f),list=await createMemberStore(()=>f.db.raw).getAll(f.guildId);
   assert.deepEqual(await f.store.prune(f.guildId,at),{deletedCount:2,hasMore:false});
   assert.equal(await f.db.reputationVoiceInterval.count({where:{id:{in:[old.id,exact.id]}}}),0);
   assert.deepEqual((await f.db.reputationVoiceInterval.findMany({where:{guildId:f.guildId},orderBy:{id:'asc'}})).map(row=>row.id),[crossing.id,today.id,unenrolled.id]);
   assert.ok(await other.db.reputationVoiceInterval.findUnique({where:{id:foreign.id}}));
   assert.deepEqual(await history(f),before);
-  assert.deepEqual(await createMemberStore(()=>f.db).getAll(f.guildId),list);
+  assert.deepEqual(await createMemberStore(()=>f.db.raw).getAll(f.guildId),list);
   assert.equal((await f.db.reputationVoiceInterval.findUniqueOrThrow({where:{id:crossing.id}})).startedAt.getTime(),crossing.startedAt.getTime());
-  assert.equal(await createSettlementStore(()=>f.db).settleNextClosedDay(f.guildId,at),null);
+  assert.equal(await createSettlementStore(()=>f.db.raw).settleNextClosedDay(f.guildId,at),null);
 })));
 
 test('retention never deletes old but unsettled time, including an interval crossing the settlement watermark',options,async()=>fixture(async f=>{
@@ -100,11 +100,11 @@ test('no watermark or a malformed watermark never permits retention deletion',op
 test('concurrent cleanup drains bounded batches and restarts idempotently',options,async()=>fixture(async f=>{
   const count=INTERVAL_RETENTION_BATCH_SIZE+7;
   await f.db.reputationVoiceInterval.createMany({data:Array.from({length:count},()=>({guildId:f.guildId,userId:john,runId:f.runId,startedAt:new Date(cutoff.getTime()-600000),endedAt:cutoff}))});
-  const results=await Promise.all([f.store.prune(f.guildId,at),createIntervalRetentionStore(()=>f.db).prune(f.guildId,at)]);
+  const results=await Promise.all([f.store.prune(f.guildId,at),createIntervalRetentionStore(()=>f.db.raw).prune(f.guildId,at)]);
   assert.deepEqual(results.map(result=>result.deletedCount).sort((a,b)=>a-b),[7,INTERVAL_RETENTION_BATCH_SIZE]);
   assert.equal(results.filter(result=>result.hasMore).length,1);
   assert.equal(await f.db.reputationVoiceInterval.count({where:{guildId:f.guildId}}),0);
-  assert.deepEqual(await createIntervalRetentionStore(()=>f.db).prune(f.guildId,at),{deletedCount:0,hasMore:false});
+  assert.deepEqual(await createIntervalRetentionStore(()=>f.db.raw).prune(f.guildId,at),{deletedCount:0,hasMore:false});
 }));
 
 test('a failed cleanup transaction rolls back deletions and retries without altering daily history',options,async()=>fixture(async f=>{

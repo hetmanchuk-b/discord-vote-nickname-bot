@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const process = require('node:process');
 const { randomInt } = require('node:crypto');
-const { createReputationDatabase } = require('../dist/reputation/database.js');
+const { createReputationDatabase } = require('./helpers/point-test-database.cjs');
 const { createTrackingStore } = require('../dist/reputation/tracking-store.js');
 const { createSettlementStore } = require('../dist/reputation/settlement-store.js');
 const { kyivDay } = require('../dist/reputation/kyiv-day.js');
@@ -16,8 +16,8 @@ const nathan = '222222222222222222';
 async function fixture(callback) {
   const database = createReputationDatabase(url);
   const guildId = `${Date.now()}${randomInt(100000, 999999)}`;
-  const tracking = createTrackingStore(() => database);
-  const settlement = createSettlementStore(() => database);
+  const tracking = createTrackingStore(() => database.raw);
+  const settlement = createSettlementStore(() => database.raw);
   try {
     await callback({ database, guildId, tracking, settlement });
   } finally {
@@ -60,14 +60,14 @@ test('settlement aggregates visits, preserves paused earnings, and snapshots bal
     await f.database.reputationMember.update({ where: { guildId_userId: { guildId: f.guildId, userId: john } }, data: { balance: 10 } });
     assert.equal(await f.settlement.settleNextClosedDay(f.guildId, new Date(day.end - 1)), null);
     const result = await f.settlement.settleNextClosedDay(f.guildId, day.end);
-    assert.deepEqual(result, { day: day.day, pointsAwarded: 1, incomplete: false });
+    assert.deepEqual(result, { day: day.day, pointsAwarded: 2, incomplete: false });
     const awards = await f.database.reputationDailyAward.findMany({ where: { guildId: f.guildId }, orderBy: { userId: 'asc' } });
     assert.deepEqual(awards.map(row => [row.userId, row.eligibleMs, row.points, row.balanceAfter]), [
-      [john, 13 * MINUTE, 1, 11], [nathan, 9 * MINUTE, 0, 0],
+      [john, 13 * MINUTE, 1.25, 11.25], [nathan, 9 * MINUTE, 0.75, 0.75],
     ]);
     assert.equal(await f.settlement.settleNextClosedDay(f.guildId, day.end), null);
     const member = await f.database.reputationMember.findUniqueOrThrow({ where: { guildId_userId: { guildId: f.guildId, userId: john } } });
-    assert.equal(member.balance, 11);
+    assert.equal(member.balance, 11.25);
     assert.equal(member.isTracking, false);
 
     // A later payout changes the live balance, not the previous day's snapshot.
@@ -77,9 +77,9 @@ test('settlement aggregates visits, preserves paused earnings, and snapshots bal
     const frozen = await f.database.reputationDailyAward.findUniqueOrThrow({ where: {
       guildId_userId_day: { guildId: f.guildId, userId: john, day: day.day },
     } });
-    assert.equal(frozen.balanceAfter, 11);
+    assert.equal(frozen.balanceAfter, 11.25);
     const current = await f.database.reputationMember.findUniqueOrThrow({ where: { guildId_userId: { guildId: f.guildId, userId: john } } });
-    assert.equal(current.balance, 155);
+    assert.equal(current.balance, 155.25);
   });
 });
 
@@ -96,7 +96,7 @@ test('a midnight-spanning interval is split per day and partial blocks never car
     assert.equal((await f.settlement.settleNextClosedDay(f.guildId, now)).day, second.day);
     assert.equal(await f.settlement.settleNextClosedDay(f.guildId, now), null);
     const rows = await f.database.reputationDailyAward.findMany({ where: { guildId: f.guildId }, orderBy: { day: 'asc' } });
-    assert.deepEqual(rows.map(row => [row.eligibleMs, row.points]), [[7 * MINUTE, 0], [7 * MINUTE, 0]]);
+    assert.deepEqual(rows.map(row => [row.eligibleMs, row.points]), [[7 * MINUTE, 0.5], [7 * MINUTE, 0.5]]);
     assert.equal(await f.database.reputationSettlement.count({ where: { guildId: f.guildId } }), 2);
   });
 });

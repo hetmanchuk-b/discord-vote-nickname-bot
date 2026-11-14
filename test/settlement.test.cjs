@@ -38,11 +38,11 @@ test('calendar arithmetic validates dates and crosses year/leap-day boundaries',
   }
 });
 
-test('points are whole integers with a strict ten-minute threshold', () => {
+test('points are exact quarters with daily rounding down', () => {
   assert.equal(pointsForTime(0), 0);
-  assert.equal(pointsForTime(10 * MINUTE - 1), 0);
+  assert.equal(pointsForTime(10 * MINUTE - 1), 0.75);
   assert.equal(pointsForTime(10 * MINUTE), 1);
-  assert.equal(pointsForTime(29 * MINUTE), 2);
+  assert.equal(pointsForTime(29 * MINUTE), 2.75);
   assert.equal(pointsForTime(60 * MINUTE), 6);
   assert.throws(() => pointsForTime(-1));
   assert.throws(() => pointsForTime(0.5));
@@ -54,12 +54,12 @@ test('daily totals accumulate visits before rounding and do not carry a remainde
     { userId: 'john', eligibleMs: BigInt((6 + 7) * MINUTE) },
     { userId: 'nathan', eligibleMs: BigInt(9 * MINUTE) },
   ], [{ start: day.start, end: day.end }]);
-  assert.deepEqual(summary.members.map(member => [member.userId, member.points]), [['john', 1], ['nathan', 0]]);
+  assert.deepEqual(summary.members.map(member => [member.userId, member.points]), [['john', 1.25], ['nathan', 0.75]]);
   assert.equal(summary.activityMs, BigInt(22 * MINUTE));
-  assert.equal(summary.pointsAwarded, 1);
+  assert.equal(summary.pointsAwarded, 2);
   assert.equal(summary.incomplete, false);
   const tomorrow = summarizeDay(kyivDay('2026-11-12'), [{ userId: 'john', eligibleMs: BigInt(7 * MINUTE) }], []);
-  assert.equal(tomorrow.pointsAwarded, 0);
+  assert.equal(tomorrow.pointsAwarded, 0.5);
 });
 
 test('coverage merges overlapping runs and clips to the local day', () => {

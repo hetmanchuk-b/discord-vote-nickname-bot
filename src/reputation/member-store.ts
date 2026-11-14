@@ -2,6 +2,7 @@ import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getReputationDatabase } from './database.js';
 import { coveredMilliseconds, pointsForTime } from './daily-summary.js';
+import { fromPointUnits } from './point-units.js';
 import { kyivDate, kyivDay } from './kyiv-day.js';
 
 export interface TodayStatistics {
@@ -27,17 +28,17 @@ export interface MemberStore {
 
 export function createMemberStore(getDatabase: () => PrismaClient = getReputationDatabase): MemberStore {
   return {
-    getAll: guildId => getDatabase().reputationMember.findMany({
+    getAll: async guildId => (await getDatabase().reputationMember.findMany({
       where: { guildId, OR: [{ hasParticipated: true }, { intervals: { some: {} } }] },
       select: { userId: true, balance: true },
       orderBy: [{ balance: 'desc' }, { userId: 'asc' }],
-    }),
+    })).map(member => ({ ...member, balance: fromPointUnits(member.balance) })),
 
     async getBalance(guildId, userId) {
       const member = await getDatabase().reputationMember.findUnique({
         where: { guildId_userId: { guildId, userId } }, select: { balance: true },
       });
-      return member?.balance ?? 0;
+      return member ? fromPointUnits(member.balance) : 0;
     },
 
     async getToday(guildId, userId, at) {
@@ -47,10 +48,13 @@ export function createMemberStore(getDatabase: () => PrismaClient = getReputatio
           where: { guildId_userId: { guildId, userId } },
           select: { isTracking: true, attendanceStreak: true, absenceStreak: true },
         });
-        const [total] = await tx.$queryRaw<{ eligibleMs: bigint }[]>(Prisma.sql`
+        const [total] = await tx.$queryRaw<{ eligibleMs: bigint; soloMs: bigint }[]>(Prisma.sql`
           SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (
             LEAST(ended_at, ${at}::timestamptz) - GREATEST(started_at, ${day.start}::timestamptz)
-          )) * 1000), 0)::bigint AS "eligibleMs"
+          )) * 1000), 0)::bigint AS "eligibleMs",
+            COALESCE(SUM(EXTRACT(EPOCH FROM (
+              LEAST(ended_at, ${at}::timestamptz) - GREATEST(started_at, ${day.start}::timestamptz)
+            )) * 1000) FILTER (WHERE earning_rate = 1), 0)::bigint AS "soloMs"
           FROM reputation_voice_intervals
           WHERE guild_id = ${guildId} AND user_id = ${userId}
             AND started_at < ${at} AND ended_at > ${day.start}
@@ -67,7 +71,7 @@ export function createMemberStore(getDatabase: () => PrismaClient = getReputatio
           start: run.startedAt, end: run.verifiedThrough,
         })));
         return {
-          day: day.day, eligibleMs, pendingPoints: pointsForTime(eligibleMs),
+          day: day.day, eligibleMs, pendingPoints: pointsForTime(eligibleMs, Number(total?.soloMs ?? 0n)),
           isTracking: member?.isTracking ?? true,
           incomplete: coverage < at.getTime() - day.start.getTime(),
           attendanceStreak: member?.attendanceStreak ?? 0, absenceStreak: member?.absenceStreak ?? 0,

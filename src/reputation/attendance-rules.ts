@@ -1,4 +1,5 @@
 import { pointsForTime } from './daily-summary.js';
+import { fromPointUnits, toPointUnits, MIN_POINT_UNITS, MAX_POINT_UNITS } from './point-units.js';
 
 export const MIN_REPUTATION = -500;
 export const MAX_REPUTATION = 5_000;
@@ -14,15 +15,15 @@ export interface AttendanceState {
 // One closed Kyiv day. Explicit exemptions (pause, pre-policy, or insufficient
 // observation for an absent member) freeze BOTH streaks. Verified attendance
 // does not require complete global coverage; never invent missing voice time.
-export function settleAttendance(state: AttendanceState, eligibleMs: number, exempt: boolean) {
+export function settleAttendance(state: AttendanceState, eligibleMs: number, exempt: boolean, soloMs = 0) {
   const { balance } = state;
-  if (!Number.isInteger(balance) || balance < MIN_REPUTATION || balance > MAX_REPUTATION ||
+  if (!Number.isSafeInteger(balance * 4) || balance < MIN_REPUTATION || balance > MAX_REPUTATION ||
     ![state.attendanceStreak, state.absenceStreak].every(value => Number.isInteger(value) && value >= 0 && value <= MAX_STREAK) ||
     (state.attendanceStreak > 0 && state.absenceStreak > 0) ||
     (!state.hasParticipated && (state.attendanceStreak > 0 || state.absenceStreak > 0))) {
     throw new Error('Invalid attendance state.');
   }
-  const basePoints = pointsForTime(eligibleMs);
+  const basePoints = pointsForTime(eligibleMs, soloMs);
   const hasParticipated = state.hasParticipated || eligibleMs > 0;
   let { attendanceStreak, absenceStreak } = state;
   let attendanceBonus = 0;
@@ -38,9 +39,10 @@ export function settleAttendance(state: AttendanceState, eligibleMs: number, exe
       absencePenalty = absenceStreak <= 7 ? 5 : 10;
     }
   }
-  const balanceAfter = Math.max(MIN_REPUTATION, Math.min(MAX_REPUTATION, balance + basePoints + attendanceBonus - absencePenalty));
+  const balanceAfter = fromPointUnits(Math.max(MIN_POINT_UNITS, Math.min(MAX_POINT_UNITS,
+    toPointUnits(balance) + toPointUnits(basePoints) + toPointUnits(attendanceBonus) - toPointUnits(absencePenalty))));
   return {
     hasParticipated, attendanceStreak, absenceStreak, basePoints, attendanceBonus, absencePenalty,
-    eligibleMs, exempt, balanceAfter, points: balanceAfter - balance,
+    eligibleMs, soloMs, exempt, balanceAfter, points: balanceAfter - balance,
   };
 }

@@ -70,7 +70,7 @@ test('reputation-all failures stay private and never disclose driver secrets', a
 test('participant storage is guild-scoped, includes paused/unsettled participants, and orders balances deterministically', async () => {
   const rows = [{userId:'user',balance:-5}];
   let request;
-  const store = createMemberStore(()=>({reputationMember:{findMany:async args=>{request=args;return rows;}}}));
+  const store = createMemberStore(()=>({reputationMember:{findMany:async args=>{request=args;return rows.map(row=>({...row,balance:row.balance*4}));}}}));
   assert.deepEqual(await store.getAll('guild'),rows);
   assert.deepEqual(request,{
     where:{guildId:'guild',OR:[{hasParticipated:true},{intervals:{some:{}}}]},

@@ -19,6 +19,7 @@ interface TrackerOptions {
   store: TrackingStore;
   // Candidates include paused humans; persisted preferences decide who earns time.
   presentUserIds(): readonly string[];
+  soloUserIds?(): readonly string[];
   now?: () => Date;
   onStatus?: (event: TrackingStatusEvent) => void;
 }
@@ -26,6 +27,7 @@ interface TrackerOptions {
 interface Observation {
   at: Date;
   present: Set<string>;
+  solo: Set<string>;
 }
 
 // One serialized writer per server. Captured event timestamps prevent database
@@ -37,6 +39,7 @@ export class VoiceTracker {
   private runId?: string;
   private cursor?: Date;
   private present = new Set<string>();
+  private solo = new Set<string>();
   private paused = new Set<string>();
   private suspended = true;
   private leaseLost = false;
@@ -154,7 +157,9 @@ export class VoiceTracker {
   }
 
   private capture(): Observation {
-    return { at: this.now(), present: new Set(this.options.presentUserIds()) };
+    const at = this.now();
+    const present = new Set(this.options.presentUserIds());
+    return { at, present, solo: new Set((this.options.soloUserIds?.() ?? []).filter(id => present.has(id))) };
   }
 
   private async recover(): Promise<void> {
@@ -166,6 +171,7 @@ export class VoiceTracker {
       this.runId = run.runId;
       this.cursor = observation.at;
       this.present = observation.present;
+      this.solo = observation.solo;
       this.paused = new Set(run.pausedUserIds);
       if (this.failures) {
         this.options.onStatus?.({ status: 'recovered', at: observation.at, reason: 'database' });
@@ -196,7 +202,8 @@ export class VoiceTracker {
       return;
     }
     const unchanged = this.present.size === observation.present.size &&
-      [...this.present].every(id => observation.present.has(id));
+      [...this.present].every(id => observation.present.has(id)) &&
+      this.solo.size === observation.solo.size && [...this.solo].every(id => observation.solo.has(id));
     if (!force && unchanged) return; // Mute/deafen and eligible-to-eligible moves.
 
     try {
@@ -204,9 +211,11 @@ export class VoiceTracker {
         guildId: this.options.guildId, runId: this.runId,
         from: this.cursor, to: observation.at,
         userIds: [...this.present].filter(id => !this.paused.has(id)),
+        ...(this.solo.size ? { soloUserIds: [...this.solo] } : {}),
       });
       this.cursor = observation.at;
       this.present = observation.present;
+      this.solo = observation.solo;
     } catch (error) {
       this.failed(error);
     }
@@ -217,6 +226,7 @@ export class VoiceTracker {
     this.runId = undefined;
     this.cursor = undefined;
     this.present.clear();
+    this.solo.clear();
     if (!runId) return;
     try {
       await this.options.store.closeRun(this.options.guildId, runId, at, reason);
@@ -229,6 +239,7 @@ export class VoiceTracker {
     this.runId = undefined;
     this.cursor = undefined;
     this.present.clear();
+    this.solo.clear();
     const at = this.now();
     if (error instanceof TrackingLeaseLostError) {
       this.leaseLost = true;

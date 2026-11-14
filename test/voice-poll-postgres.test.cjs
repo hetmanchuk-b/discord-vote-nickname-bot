@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const process=require('node:process');
 const {randomInt,randomUUID}=require('node:crypto');
-const {createReputationDatabase}=require('../dist/reputation/database.js');
+const {createReputationDatabase}=require('./helpers/point-test-database.cjs');
 const {createVoicePollStore,VoicePollError}=require('../dist/reputation/voice-poll-store.js');
 const {createTrackingStore}=require('../dist/reputation/tracking-store.js');
 const {PublicationPendingError}=require('../dist/reputation/report-errors.js');
@@ -13,7 +13,7 @@ const options={skip:!url&&'Set REPUTATION_TEST_DATABASE_URL to a disposable migr
 const target='111111111111111111',caller='222222222222222222',other='333333333333333333',fourth='444444444444444444';
 async function fixture(callback){
   const db=createReputationDatabase(url);const guildId=`${Date.now()}${randomInt(100000,999999)}`;
-  const store=createVoicePollStore(()=>db),tracking=createTrackingStore(()=>db);
+  const store=createVoicePollStore(()=>db.raw),tracking=createTrackingStore(()=>db.raw);
   try{
     await db.reputationGuild.create({data:{guildId}});
     await db.reputationMember.create({data:{guildId,userId:target,hasParticipated:true,balance:100}});
@@ -185,7 +185,7 @@ test('daily settlement and a fine serialize without losing either balance change
   await f.db.reputationTrackingRun.create({data:{id:runId,guildId:f.guildId,startedAt:day.start,verifiedThrough:day.end}});
   await f.db.reputationVoiceInterval.create({data:{guildId:f.guildId,userId:target,runId,startedAt:day.start,endedAt:new Date(day.start.getTime()+600000)}});
   const poll=await active(f);await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
-  await Promise.all([createSettlementStore(()=>f.db).settleNextClosedDay(f.guildId,new Date()),f.store.finish(poll.id,evidence)]);
+  await Promise.all([createSettlementStore(()=>f.db.raw).settleNextClosedDay(f.guildId,new Date()),f.store.finish(poll.id,evidence)]);
   assert.equal(await balance(f),51);
 }));
 
@@ -197,7 +197,7 @@ test('reward unanimity credits once, permits paused targets, and records the act
   assert.ok(results.every(result=>result.kind==='reward'&&result.appliedAmount===20&&result.balanceAfter===5000));
   assert.equal(await balance(f),5000);
   await assert.rejects(f.store.reserve({...f.request,kind:'reward'}),error=>error.code==='balance-ceiling');
-  const recovered=await createVoicePollStore(()=>f.db).finish(poll.id,null);assert.equal(recovered.appliedAmount,20);assert.equal(await balance(f),5000);
+  const recovered=await createVoicePollStore(()=>f.db.raw).finish(poll.id,null);assert.equal(recovered.appliedAmount,20);assert.equal(await balance(f),5000);
 }));
 
 test('database rejects legacy penalty-style processing of a reward and rolls back the debit',options,async()=>fixture(async f=>{
@@ -260,7 +260,7 @@ test('erasure cancels a reward, and daily settlement serializes with a reward wi
   await f.db.reputationVoiceInterval.create({data:{guildId:f.guildId,userId:target,runId,startedAt:day.start,endedAt:new Date(day.start.getTime()+600000)}});
   const reserved=await f.store.reserve({...f.request,kind:'reward'});const at=new Date();
   const next=await f.store.activate(reserved.id,String(BigInt(f.guildId)+1n),at,{at,userIds:[target,caller,other,fourth]});await vote(f,next,caller,true);
-  const snapshot=await expire(f,next,[caller]);await Promise.all([f.store.finish(next.id,snapshot),createSettlementStore(()=>f.db).settleNextClosedDay(f.guildId,new Date())]);
+  const snapshot=await expire(f,next,[caller]);await Promise.all([f.store.finish(next.id,snapshot),createSettlementStore(()=>f.db.raw).settleNextClosedDay(f.guildId,new Date())]);
   assert.equal(await balance(f),51);
 }));
 
@@ -268,7 +268,7 @@ for(const kind of ['penalty','reward']){
   test(`${kind} reason is normalized, durable across restart, and retained with an exactly-once success`,options,async()=>fixture(async f=>{
     f.request.proposalReason='  Допомога команді\nз поясненням  ';
     const poll=await active(f,50,kind);await vote(f,poll,caller,true);
-    const restarted=createVoicePollStore(()=>f.db);
+    const restarted=createVoicePollStore(()=>f.db.raw);
     assert.equal((await restarted.get(poll.id)).proposalReason,'Допомога команді\nз поясненням');
     const evidence=await expire(f,poll,[caller]);
     const result=await restarted.finish(poll.id,evidence);
@@ -330,7 +330,7 @@ test('uncertain successful reason delivery blocks author erasure; published reas
 test('lost final transaction acknowledgement/restart returns the durable result without reapplying money',options,async()=>fixture(async f=>{
   const poll=await active(f);await vote(f,poll,caller,true);const evidence=await expire(f,poll,[caller]);
   const first=await f.store.finish(poll.id,evidence);
-  const restarted=createVoicePollStore(()=>f.db);const again=await restarted.finish(poll.id,null);
+  const restarted=createVoicePollStore(()=>f.db.raw);const again=await restarted.finish(poll.id,null);
   assert.equal(again.appliedAmount,first.appliedAmount);assert.equal(await balance(f),50);
   assert.ok((await restarted.pending(f.guildId)).some(row=>row.id===poll.id));
   await restarted.delivered(poll.id,true);assert.equal((await restarted.pending(f.guildId)).length,0);

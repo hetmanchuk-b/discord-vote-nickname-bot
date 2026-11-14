@@ -132,6 +132,7 @@ Before turning on schedules, create a completely separate **empty test PostgreSQ
    PowerShell uses `"--dbname=$env:PGDATABASE"` instead. The target connection must be independently configured; this is **not** the source database URL. We will review the exact target and commands together before any agent-executed restore.
 
 6. Check schema/table counts, representative balances and `is_tracking` preferences, day ledgers, frozen report entries, and `_prisma_migrations`. Do not post user rows publicly.
+   For schema versions after `20261111110000_quarter_points_and_solo_rate`, money columns ending in `*_units` contain integer quarter-points: divide by 4 to inspect displayed values (in SQL use `balance_units / 4.0`, not truncating integer division `/ 4`). Review `_prisma_migrations` when restoring older archives and apply pending migrations exactly once before running the matching bot. Never manually multiply an already-converted archive again.
 7. If a managed test database reports existing-schema/ownership conflicts, stop and review the archive/target. Do not blindly add `--clean`, drop schemas, or bypass errors.
 8. Remove local plaintext after testing and retire the disposable test database when you no longer need it.
 

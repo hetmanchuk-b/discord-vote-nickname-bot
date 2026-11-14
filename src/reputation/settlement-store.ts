@@ -5,6 +5,7 @@ import { kyivDate, kyivDay } from './kyiv-day.js';
 import { summarizeDay } from './daily-summary.js';
 import type { MemberTime } from './daily-summary.js';
 import { settleAttendance } from './attendance-rules.js';
+import { fromPointUnits, toPointUnits } from './point-units.js';
 import { absenceObservationSufficient, MAX_STREAK_GAP_MS } from './streak-observation.js';
 
 export interface SettledDay {
@@ -53,7 +54,10 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
           SELECT user_id AS "userId",
             SUM(EXTRACT(EPOCH FROM (
               LEAST(ended_at, ${day.end}::timestamptz) - GREATEST(started_at, ${day.start}::timestamptz)
-            )) * 1000)::bigint AS "eligibleMs"
+            )) * 1000)::bigint AS "eligibleMs",
+            COALESCE(SUM(EXTRACT(EPOCH FROM (
+              LEAST(ended_at, ${day.end}::timestamptz) - GREATEST(started_at, ${day.start}::timestamptz)
+            )) * 1000) FILTER (WHERE earning_rate = 1), 0)::bigint AS "soloMs"
           FROM reputation_voice_intervals
           WHERE guild_id = ${guildId} AND started_at < ${day.end} AND ended_at > ${day.start}
           GROUP BY user_id
@@ -72,6 +76,7 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
         const summary = summarizeDay(day, totals, coverage);
         const absenceObserved = absenceObservationSufficient(day, coverage);
         const eligibleById = new Map(summary.members.map(member => [member.userId, member.eligibleMs]));
+        const soloById = new Map(summary.members.map(member => [member.userId, member.soloMs]));
         const members = await tx.reputationMember.findMany({
           where: { guildId, OR: [{ hasParticipated: true }, { userId: { in: [...eligibleById.keys()] } }] },
           select: {
@@ -97,42 +102,43 @@ export function createSettlementStore(getDatabase: () => PrismaClient = getReput
           const eligibleMs = eligibleById.get(member.userId) ?? 0;
           return {
             userId: member.userId,
-            ...settleAttendance(member, eligibleMs,
-              !policyActive || member.pauses.length > 0 || (eligibleMs === 0 && !absenceObserved)),
+            ...settleAttendance({ ...member, balance: fromPointUnits(member.balance) }, eligibleMs,
+              !policyActive || member.pauses.length > 0 || (eligibleMs === 0 && !absenceObserved), soloById.get(member.userId) ?? 0),
           };
         });
-        const pointsAwarded = awards.reduce((total, award) => total + award.points, 0);
-        if (!Number.isSafeInteger(pointsAwarded) || Math.abs(pointsAwarded) > 2_147_483_647) {
+        const pointsAwardedUnits = awards.reduce((total, award) => total + toPointUnits(award.points), 0);
+        if (!Number.isSafeInteger(pointsAwardedUnits) || Math.abs(pointsAwardedUnits) > 2_147_483_647) {
           throw new Error('Daily net point total exceeds storage capacity.');
         }
+        const pointsAwarded = fromPointUnits(pointsAwardedUnits);
         await tx.reputationSettlement.create({
           data: {
             guildId, day: day.day, startedAt: day.start, endedAt: day.end, settledAt: at,
             verifiedMs: summary.verifiedMs, incomplete: summary.incomplete,
-            activityMs: summary.activityMs, pointsAwarded,
+            activityMs: summary.activityMs, pointsAwarded: pointsAwardedUnits,
           },
         });
 
         if (awards.length) {
           const updates = JSON.stringify(awards.map(award => ({
-            user_id: award.userId, balance: award.balanceAfter, has_participated: award.hasParticipated,
+            user_id: award.userId, balance_units: toPointUnits(award.balanceAfter), has_participated: award.hasParticipated,
             attendance_streak: award.attendanceStreak, absence_streak: award.absenceStreak,
           })));
           const balances = await tx.$queryRaw<{ userId: string }[]>(Prisma.sql`
             UPDATE reputation_members AS m
-            SET balance = award.balance, has_participated = award.has_participated,
+            SET balance_units = award.balance_units, has_participated = award.has_participated,
               attendance_streak = award.attendance_streak, absence_streak = award.absence_streak, updated_at = ${at}
             FROM jsonb_to_recordset(${updates}::jsonb) AS award(
-              user_id text, balance integer, has_participated boolean, attendance_streak integer, absence_streak integer)
+              user_id text, balance_units integer, has_participated boolean, attendance_streak integer, absence_streak integer)
             WHERE m.guild_id = ${guildId} AND m.user_id = award.user_id
             RETURNING m.user_id AS "userId"
           `);
           if (balances.length !== awards.length) throw new Error('Settlement member records changed.');
           await tx.reputationDailyAward.createMany({
             data: awards.map(award => ({
-              guildId, day: day.day, userId: award.userId, eligibleMs: award.eligibleMs,
-              points: award.points, balanceAfter: award.balanceAfter, basePoints: award.basePoints,
-              attendanceBonus: award.attendanceBonus, absencePenalty: award.absencePenalty,
+              guildId, day: day.day, userId: award.userId, eligibleMs: award.eligibleMs, soloMs: award.soloMs,
+              points: toPointUnits(award.points), balanceAfter: toPointUnits(award.balanceAfter), basePoints: toPointUnits(award.basePoints),
+              attendanceBonus: toPointUnits(award.attendanceBonus), absencePenalty: toPointUnits(award.absencePenalty),
               attendanceStreak: award.attendanceStreak, absenceStreak: award.absenceStreak, exempt: award.exempt,
             })),
           });

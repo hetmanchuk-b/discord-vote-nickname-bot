@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const process = require('node:process');
 const { randomInt } = require('node:crypto');
-const { createReputationDatabase } = require('../dist/reputation/database.js');
+const { createReputationDatabase } = require('./helpers/point-test-database.cjs');
 const { createTrackingStore } = require('../dist/reputation/tracking-store.js');
 const { createMemberStore } = require('../dist/reputation/member-store.js');
 const { createSettlementStore } = require('../dist/reputation/settlement-store.js');
@@ -17,9 +17,9 @@ const nathan = '222222222222222222';
 async function fixture(callback) {
   const database = createReputationDatabase(url);
   const guildId = `${Date.now()}${randomInt(100000, 999999)}`;
-  const tracking = createTrackingStore(() => database);
-  const members = createMemberStore(() => database);
-  const settlement = createSettlementStore(() => database);
+  const tracking = createTrackingStore(() => database.raw);
+  const members = createMemberStore(() => database.raw);
+  const settlement = createSettlementStore(() => database.raw);
   try {
     await callback({ database, guildId, tracking, members, settlement });
   } finally {
@@ -90,7 +90,7 @@ test('today queries clip cross-midnight sessions at the query instant and respec
     const at = new Date(day.start.getTime() + 4 * MINUTE);
     const current = await f.members.getToday(f.guildId, john, at);
     assert.equal(current.eligibleMs, 4 * MINUTE);
-    assert.equal(current.pendingPoints, 0);
+    assert.equal(current.pendingPoints, 0.25);
     assert.equal(current.incomplete, false);
     await f.tracking.setTracking(f.guildId, { userId: john, enabled: false }, to);
     const paused = await f.members.getToday(f.guildId, john, new Date(to.getTime() + MINUTE));
@@ -121,7 +121,7 @@ test('persisted eligibility floor excludes pause/deletion gaps even for stale qu
     assert.equal(rows[0].startedAt.getTime(), at(16).getTime());
     const fresh = await f.members.getToday(f.guildId, john, at(20));
     assert.equal(fresh.eligibleMs, 4 * MINUTE);
-    assert.equal(fresh.pendingPoints, 0);
+    assert.equal(fresh.pendingPoints, 0.25);
     assert.equal(await f.members.getBalance(f.guildId, john), 0);
   });
 });

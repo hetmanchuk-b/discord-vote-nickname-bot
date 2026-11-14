@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
+import { fromPointUnits } from './point-units.js';
 import { getReputationDatabase } from './database.js';
 import { REPORT_PAGE_SIZE } from './report-pagination.js';
 
@@ -14,7 +15,7 @@ function view(row: StoredReport) {
     id: row.id, guildId: row.guildId, day: row.day, status: row.status,
     channelId: row.channelId, messageId: row.messageId,
     createdAt: row.createdAt, preparedAt: row.preparedAt, publishedAt: row.publishedAt,
-    activityMs: row.activityMs, pointsAwarded: row.pointsAwarded, entryCount: row.entryCount,
+    activityMs: row.activityMs, pointsAwarded: fromPointUnits(row.pointsAwarded), entryCount: row.entryCount,
     startedAt: row.settlement.startedAt, endedAt: row.settlement.endedAt,
     incomplete: row.settlement.incomplete, verifiedMs: row.settlement.verifiedMs,
   };
@@ -135,7 +136,9 @@ export function createReportStore(getDatabase: () => PrismaClient = getReputatio
         where: { reportId: id }, orderBy: { position: 'asc' }, skip: page * REPORT_PAGE_SIZE, take: REPORT_PAGE_SIZE,
         select: { userId: true, position: true, eligibleMs: true, points: true, balanceAfter: true },
       });
-      return { report: view(row), entries, page };
+      return { report: view(row), entries: entries.map(entry => ({ ...entry,
+        points: fromPointUnits(entry.points), balanceAfter: fromPointUnits(entry.balanceAfter),
+      })), page };
     },
   };
 }

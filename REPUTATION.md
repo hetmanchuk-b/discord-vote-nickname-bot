@@ -63,6 +63,16 @@ Migration `20261111080000_voice_rewards` was applied to the hosted database with
 
 All **305 tests** passed with local database integration, including capped/exact-once credits, paused/floor targets, veto/no-Yes/unverified outcomes, cross-kind reservation/button isolation, erasure, settlement races, legacy schema upgrades/history preservation, and rollback of legacy-style reward debits. Build, type-check, lint, schema validation, fresh local migration deployment and schema-diff checks passed.
 
+## Quarter-point accounting and 25% solo rate
+
+Implemented integer quarter-unit storage with public point-valued views and localized quarter-point formatting. Live tracking records interval `earning_rate` (1 solo / 4 full), flushes rate changes even for same-roster room moves, and combines weighted time before one daily quarter rounding. Daily `solo_ms` and unweighted `eligible_ms` preserve attendance/graph history after raw retention. Bonuses, absence penalties, streak qualification, displayed bounds and vote choices are unchanged; capped votes can apply an exact 0.25-point delta.
+
+Migration `20261111110000_quarter_points_and_solo_rate` was applied to the hosted database with explicit approval and confirmation that the bot was stopped. It scales every retained monetary value, historical snapshot and poll audit ×4 exactly once and renames physical money columns to `*_units`, preventing old binaries from reading/writing the new unit system. Old interval occupancy cannot be inferred, so existing raw records retain full earning rate; `solo_ms=0` for historical daily records does not prove there was company. Completed ledger values remain the same in displayed points and are never recalculated. New rounding applies to subsequent settlements, including still-unsettled pre-cutover time at its retained full rate.
+
+All twelve hosted migrations are applied and the schema diff is clean. Streaming before/after checksums across all twelve application tables verified preserved displayed financial values, IDs, poll state, durations, streaks, coverage and metadata; table OIDs, legacy rate defaults and the migration checksum were also verified. Other installations must stop all old instances and explicitly apply the reviewed migration first. Deploy the matching full build before restarting one instance; old binaries are incompatible. No command/option changes require registration for this feature. No command registration or bot deployment has been performed.
+
+All **413 tests** passed with disposable local PostgreSQL-compatible integration enabled (none skipped). Tests cover scaled raw storage, mixed-rate 1.75-point earnings, quarter rounding, same-roster rate changes, bots/paused company, outage recovery, midnight/DST clipping, opt-outs, exact fractional vote bounds, retained graph history, full legacy migration preservation and overflow rollback. Type-check, lint, clean build, schema validation, deployment of all twelve migrations and a zero-difference schema comparison passed. Legacy behavior fixtures use a test-only point-valued adapter; the new storage/migration tests deliberately assert raw persisted units.
+
 ## Fourteen-day raw interval retention
 
 Automatic raw-interval cleanup is implemented in `src/reputation/interval-retention.ts`, wired into the tracking-gated settlement scheduler after successful catch-up. It deletes only rows ended at least 14 × 24 hours ago and wholly at/before the committed Kyiv-midnight settlement watermark, for members whose participation is already persisted. It uses the shared guild lock and bounded 1,000-row transactions, yields between backlog batches without amplifying tracker writes, and retries maintenance failures independently of accounting health with safe console diagnostics.
@@ -107,33 +117,35 @@ Discord does not provide historical voice-duration reports. Tracking begins when
 
 ## Confirmed earning rules
 
-- Every **10 accumulated minutes of eligible voice time per Kyiv calendar day earns 1 reputation point**.
-- Separate visits within the same day accumulate together. For example, 6 minutes plus 7 minutes earns 1 point.
-- Being alone earns the full rate. The proposed 50% solo rate was repealed.
+- In the same regular voice room with another human, **10 minutes earns 1 point**; alone, **10 minutes earns 0.25 points** (25% rate).
+- Separate solo/group visits accumulate before rounding. For example, 30 solo minutes plus 10 group minutes earns 1.75 base points.
+- Bots do not count as company; muted/deafened and personally paused humans do. Changes in occupancy/earning rate checkpoint even if the set of eligible users is unchanged.
 - Muted and deafened members still earn reputation.
 - Bot accounts do not earn reputation.
 - Only regular voice channels count; Stage channels and the server's AFK voice channel do **not** count.
 - There is no daily voice-time cap and no additional anti-farming rule. The final balance is bounded to **−500…5,000**.
-- Incomplete 10-minute blocks are discarded at midnight; they do not carry into the next day.
-- Reputation awards and settled balances are whole integers.
+- The combined weighted result is rounded down to the nearest 0.25 points once per Kyiv day; smaller remainders are discarded, never carried.
+- Reputation balances/awards are exact quarter-points. All stored money is integer quarter units (4 units = 1 displayed point); timestamps, eligible milliseconds and streak counts are not scaled.
 - Reputation is retained if a member leaves and later rejoins the server.
 
 For each member and day:
 
 ```text
-base points = floor(verified eligible milliseconds / 600000)
+base units = floor((4 * verified group milliseconds + verified solo milliseconds) / 600000)
+base points = base units / 4
 new balance = clamp(old balance + base points + attendance bonus - absence penalty, -500, 5000)
 actual daily points = new balance - old balance
 ```
 
 Time should be accumulated before rounding, not rounded separately for each visit.
 
-| Daily eligible time | Base points (before bonus/penalty and balance bounds) |
-| --- | ---: |
-| 9 minutes | 0 |
-| 10 minutes | 1 |
-| 29 minutes | 2 |
-| 60 minutes | 6 |
+| Verified solo time | Verified group time | Base points (before bonus/penalty and bounds) |
+| --- | --- | ---: |
+| 9 minutes | 0 | 0 |
+| 10 minutes | 0 | 0.25 |
+| 30 minutes | 10 minutes | 1.75 |
+| 0 | 2.5 minutes | 0.25 |
+| 0 | 60 minutes | 6 |
 
 ## Attendance and absence
 
@@ -296,10 +308,9 @@ Time should be accumulated before rounding, not rounded separately for each visi
 
 - Historical voice-time backfill from Discord.
 - Listening to or recording audio, or measuring actual speaking time.
-- Reduced earning rate for solo participation.
 - Requiring multiple participants to earn points.
 - Daily point caps or additional anti-farming rules.
-- Carrying incomplete 10-minute blocks into the next day.
+- Carrying sub-quarter point remainders into the next day.
 - The original absence-based idea ("John did not join, so Nathan gets +10") has been replaced by voice-time rewards and is not part of this version.
 - A reputation leaderboard was suggested but has not been approved.
 

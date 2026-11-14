@@ -33,6 +33,21 @@ export function eligibleVoiceUserIds(guild: Guild): string[] {
     .map(state => state.id);
 }
 
+// All humans in the same eligible room count as company, including personally
+// paused members. Bots, AFK and Stage rooms never increase the earning rate.
+export function soloVoiceUserIds(guild: Guild): string[] {
+  const humans = eligibleVoiceUserIds(guild);
+  const counts = new Map<string, number>();
+  for (const id of humans) {
+    const channelId = guild.voiceStates.cache.get(id)?.channelId;
+    if (channelId) counts.set(channelId, (counts.get(channelId) ?? 0) + 1);
+  }
+  return humans.filter(id => {
+    const channelId = guild.voiceStates.cache.get(id)?.channelId;
+    return !channelId || counts.get(channelId) === 1;
+  });
+}
+
 export interface VoiceTrackingRuntime {
   guildId?: string;
   tracker?: VoiceTracker;
@@ -53,6 +68,10 @@ export function attachVoiceTracking(client: Client): VoiceTrackingRuntime {
     presentUserIds: () => {
       const guild = client.guilds.cache.get(guildId);
       return guild ? eligibleVoiceUserIds(guild) : [];
+    },
+    soloUserIds: () => {
+      const guild = client.guilds.cache.get(guildId);
+      return guild ? soloVoiceUserIds(guild) : [];
     },
     onStatus: event => {
       const causes: Record<string, WarningDetail> = {

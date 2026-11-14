@@ -19,6 +19,7 @@ export interface TrackingCheckpoint {
   from: Date;
   to: Date;
   userIds: readonly string[];
+  soloUserIds?: readonly string[];
   preference?: TrackingChange;
 }
 
@@ -62,7 +63,7 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
       }, transactionOptions);
     },
 
-    async checkpoint({ guildId, runId, from, to, userIds, preference }) {
+    async checkpoint({ guildId, runId, from, to, userIds, soloUserIds = [], preference }) {
       if (to < from) throw new Error('A tracking checkpoint cannot move backwards.');
       await getDatabase().$transaction(async tx => {
         const owner = await tx.reputationGuild.updateMany({
@@ -89,8 +90,9 @@ export function createTrackingStore(getDatabase: () => PrismaClient = getReputat
           const enabled = await tx.reputationMember.findMany({
             where: { guildId, userId: { in: ids }, isTracking: true }, select: { userId: true, trackingSince: true },
           });
+          const solo = new Set(soloUserIds);
           const intervals = enabled.map(({ userId, trackingSince }) => ({
-            guildId, userId, runId, endedAt: to,
+            guildId, userId, runId, endedAt: to, earningRate: solo.has(userId) ? 1 : 4,
             startedAt: trackingSince && trackingSince > effectiveFrom ? trackingSince : effectiveFrom,
           })).filter(interval => interval.startedAt < to);
           if (intervals.length) await tx.reputationVoiceInterval.createMany({ data: intervals });

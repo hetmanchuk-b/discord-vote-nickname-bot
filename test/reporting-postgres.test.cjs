@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const process = require('node:process');
 const { randomInt } = require('node:crypto');
-const { createReputationDatabase } = require('../dist/reputation/database.js');
+const { createReputationDatabase } = require('./helpers/point-test-database.cjs');
 const { createReportStore } = require('../dist/reputation/report-store.js');
 const { createTrackingStore } = require('../dist/reputation/tracking-store.js');
 const { createWarningStore } = require('../dist/reputation/warning-store.js');
@@ -21,8 +21,8 @@ async function fixture(callback) {
   const database = createReputationDatabase(url);
   const guildId = `${Date.now()}${randomInt(100000, 999999)}`;
   const day = kyivDay('2026-11-11');
-  const store = createReportStore(() => database);
-  const tracking = createTrackingStore(() => database);
+  const store = createReportStore(() => database.raw);
+  const tracking = createTrackingStore(() => database.raw);
   try {
     await database.reputationGuild.create({ data: { guildId, reportChannelId: channelId } });
     await database.reputationMember.createMany({ data: users.map(userId => ({ guildId, userId, balance: 900 })) });
@@ -79,7 +79,7 @@ test('snapshot ranking, ten-person pages, and settled balance values survive era
     assert.equal(first.entries[0].balanceAfter, 100); // Not the current live 900.
     await f.tracking.deleteMemberData(f.guildId, users[0], new Date());
     assert.equal(await f.database.reputationDailyAward.count({ where: { guildId: f.guildId, userId: users[0] } }), 0);
-    const restarted = createReportStore(() => f.database);
+    const restarted = createReportStore(() => f.database.raw);
     assert.deepEqual((await restarted.snapshot(f.report.id, 0)).entries, first.entries);
     assert.deepEqual((await restarted.snapshot(f.report.id, 1)).entries, last.entries);
     const navigation = createReportNavigation(async () => {}, restarted);

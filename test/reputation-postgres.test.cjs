@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const process = require('node:process');
 const { test } = require('node:test');
 const { randomInt } = require('node:crypto');
-const { createReputationDatabase } = require('../dist/reputation/database.js');
+const { createReputationDatabase } = require('./helpers/point-test-database.cjs');
 const { createReportSettingsStore } = require('../dist/reputation/report-settings.js');
 const { createTrackingStore, TrackingLeaseLostError } = require('../dist/reputation/tracking-store.js');
 
@@ -17,7 +17,7 @@ test('PostgreSQL persists settings and default tracking preferences across conne
   const userId = '111111111111111111';
   let database = createReputationDatabase(url);
   try {
-    const settings = createReportSettingsStore(() => database);
+    const settings = createReportSettingsStore(() => database.raw);
     await settings.setReportChannelId(guildId, '222222222222222222');
     const member = await database.reputationMember.create({ data: { guildId, userId } });
     assert.equal(member.isTracking, true);
@@ -50,7 +50,7 @@ test('PostgreSQL checkpoints are atomic, fenced, and exclude persisted opt-outs'
 }, async () => {
   const guildId = `${Date.now()}${randomInt(100000, 999999)}`;
   const database = createReputationDatabase(url);
-  const store = createTrackingStore(() => database);
+  const store = createTrackingStore(() => database.raw);
   const john = '111111111111111111';
   const nathan = '222222222222222222';
   const at = minute => new Date(Date.UTC(2026, 10, 11, 0, minute));
