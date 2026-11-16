@@ -34,7 +34,8 @@ export function renderReport({ report, entries, page }: ReportSnapshot, delivery
   for (const entry of entries) {
     embed.addFields({
       name: `#${entry.position + 1} · +${formatPoints(entry.points)} балів`,
-      value: `<@${entry.userId}> · ${formatVoiceTime(entry.eligibleMs)} · Баланс: **${formatPoints(entry.balanceAfter)}**`,
+      value: `<@${entry.userId}> · ${formatVoiceTime(entry.eligibleMs)} · Баланс: **${formatPoints(entry.balanceAfter)}**` +
+        (entry.soloMs !== null && entry.soloMs > 0 ? `\nНаодинці: **${entry.soloMs < 1000 ? 'менше 1 с' : formatVoiceTime(entry.soloMs)}**` : ''),
     });
   }
   const components = pages > 1 ? [new ActionRowBuilder<ButtonBuilder>().addComponents(

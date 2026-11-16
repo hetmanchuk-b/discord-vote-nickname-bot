@@ -7,7 +7,7 @@ import { REPORT_PAGE_SIZE } from './report-pagination.js';
 const include = { settlement: true } as const;
 type StoredReport = Prisma.ReputationReportGetPayload<{ include: typeof include }>;
 export type DailyReport = ReturnType<typeof view>;
-export interface ReportEntry { userId: string; position: number; eligibleMs: number; points: number; balanceAfter: number }
+export interface ReportEntry { userId: string; position: number; eligibleMs: number; soloMs: number | null; points: number; balanceAfter: number }
 export interface ReportSnapshot { report: DailyReport; entries: ReportEntry[]; page: number }
 
 function view(row: StoredReport) {
@@ -98,7 +98,7 @@ export function createReportStore(getDatabase: () => PrismaClient = getReputatio
         if (earners.length) await tx.reputationReportEntry.createMany({
           data: earners.map((award, position) => ({
             reportId: id, guildId: row.guildId, userId: award.userId, position,
-            eligibleMs: award.eligibleMs, points: award.points, balanceAfter: award.balanceAfter,
+            eligibleMs: award.eligibleMs, soloMs: award.soloMs, points: award.points, balanceAfter: award.balanceAfter,
           })),
         });
         return view(await tx.reputationReport.update({
@@ -134,7 +134,7 @@ export function createReportStore(getDatabase: () => PrismaClient = getReputatio
       }
       const entries = await getDatabase().reputationReportEntry.findMany({
         where: { reportId: id }, orderBy: { position: 'asc' }, skip: page * REPORT_PAGE_SIZE, take: REPORT_PAGE_SIZE,
-        select: { userId: true, position: true, eligibleMs: true, points: true, balanceAfter: true },
+        select: { userId: true, position: true, eligibleMs: true, soloMs: true, points: true, balanceAfter: true },
       });
       return { report: view(row), entries: entries.map(entry => ({ ...entry,
         points: fromPointUnits(entry.points), balanceAfter: fromPointUnits(entry.balanceAfter),

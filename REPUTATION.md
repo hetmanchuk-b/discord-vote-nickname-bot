@@ -243,10 +243,14 @@ Time should be accumulated before rounding, not rounded separately for each visi
 - A day with incomplete tracking must include a clear coverage warning; do not imply the bot observed zero activity for the entire day.
 - Delayed reports should retain the original day and be identifiable as delayed.
 - If eligible activity occurred but nobody earned a point, publish **"No reputation earned today"**, without listing zero-point members.
-- Each earning member's entry shows eligible voice time, daily points earned, and total settled reputation.
+- Each earning member's entry shows eligible voice time, daily points earned, and total settled reputation. When verified solo duration is positive, add `Наодинці: …` on a separate line. This is actual unweighted solo time already included in the eligible total, not additional time or points. Omit the line for known zero or uncaptured historical detail.
 - Order by daily points descending, then eligible voice time descending, then user ID for a stable final tie-breaker.
-- Snapshot total balances at settlement so historical report values remain stable.
+- Snapshot total balances and each entry's actual solo milliseconds so historical report values remain stable after restarts, member erasure, and raw-interval retention. New snapshots copy `soloMs` from the settled daily award; old snapshots remain NULL/unknown and are not reconstructed or repriced.
 - If no usable report channel is configured, continue tracking and settlement, queue reports, and publish them once a valid destination is configured. Log delivery failures without interrupting accounting.
+
+### Solo-time report cutover
+
+Migration `20261111140000_report_solo_time` adds nullable `solo_ms` to frozen report entries with a 0…eligible-time constraint. It leaves all existing snapshots unknown (NULL), even if daily data still exists, preserving published history. It does not change accounting, balances, points, ranking, report eligibility or 10-person pagination. The migration was **applied to the hosted database with explicit approval and confirmation that the bot was stopped**. All fifteen migrations are applied and the schema diff is clean. Before/after streaming checksums and table OIDs verified unchanged existing values across all sixteen application tables; old report entries retained NULL solo detail, and the new column, validated constraint and migration checksum/history were verified. Upload the complete matching build before restarting; bot deployment/start has not been performed for this extension. No command re-registration is needed solely for this change.
 
 ## Downtime and verified time
 

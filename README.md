@@ -88,6 +88,10 @@ npm run dev        # Build and start locally
 
 Configuration is read from `data/config.json` at runtime, relative to the project root, and is not copied into `dist/`. Keep that file alongside `dist/` when deploying. Never commit the bot token. The generated `dist/` directory is ignored by Git.
 
+### Solo duration in midnight reports
+
+Migration `20261111140000_report_solo_time` was **applied to the hosted database with explicit approval and confirmation that the bot was stopped**. All fifteen migrations are applied and the schema diff is clean; before/after streaming checksums and table OIDs verified unchanged existing application data. It adds nullable solo duration to frozen report entries; old snapshots remain unknown, and no points, balances or published historical values are changed. New positive solo durations are shown on their own line; known zero and unknown values are omitted. Historical report entries retained NULL solo detail; the new column, validated constraint and migration checksum/history were verified. Upload the full matching build before restarting; no command re-registration is needed solely for this feature. Bot deployment/start has not been performed for this extension.
+
 ### Source layout
 
 - `src/commands/` — slash commands, each checked against the shared `Command` interface
@@ -245,7 +249,7 @@ Deletion and tracking-preference changes serialize with the active tracker. Data
 
 Review/apply `20261111040000_reports_and_warnings` before deploying this version. It adds report snapshots, publication state, and warning metadata; applying it does not send messages or activate tracking.
 
-Daily reports use one public embed with **10 positive earners per page** and shared Previous/Next buttons. Each entry includes eligible time, daily points, and the frozen settled balance. Order is daily points descending, eligible time descending, then user ID ascending. Everyone can navigate, but cannot change saved data. Navigation acknowledges clicks immediately and serializes edits to the same message; saved message identity and snapshots keep old buttons working after restarts, even when background tracking is disabled.
+Daily reports use one public embed with **10 positive earners per page** and shared Previous/Next buttons. Each entry includes eligible time, daily points, and the frozen settled balance. When a user has positive verified solo time, a separate `Наодинці: …` line shows that actual duration (already included in their total). New snapshots retain solo milliseconds independently of raw intervals and live member data; historical uncaptured detail is unknown, not reconstructed. Order is daily points descending, eligible time descending, then user ID ascending. Everyone can navigate, but cannot change saved data. Navigation acknowledges clicks immediately and serializes edits to the same message; saved message identity and snapshots keep old buttons working after restarts, even when background tracking is disabled.
 
 A fully observed empty day says `No activity recorded`. Recorded sub-threshold activity says `No reputation earned today`, without zero-point rows. Missing observations say `No verified activity recorded` with an incomplete-coverage warning. Catch-up reports retain the original Kyiv date and indicate delayed delivery/confirmation. Embeds and warnings disable mention notifications.
 

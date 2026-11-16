@@ -18,7 +18,7 @@ function report(overrides = {}) {
     activityMs: 600000n, pointsAwarded: 1, entryCount: 1, startedAt: new Date(origin - 86400000),
     endedAt: new Date(origin), incomplete: false, verifiedMs: 86400000, ...overrides };
 }
-const entry = position => ({ userId: `user-${position}`, position, eligibleMs: 600000, points: 1, balanceAfter: 100 + position });
+const entry = position => ({ userId: `user-${position}`, position, eligibleMs: 600000, soloMs: 0, points: 1, balanceAfter: 100 + position });
 
 function publisherFixture(t, overrides = {}) {
   const timers = [];

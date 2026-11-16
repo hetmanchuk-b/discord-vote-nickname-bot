@@ -189,6 +189,7 @@ model ReputationReportEntry {
   userId       String @map("user_id") @db.VarChar(20)
   position     Int
   eligibleMs   Int    @map("eligible_ms")
+  soloMs       Int?   @map("solo_ms")
   points       Int    @map("points_units")
   balanceAfter Int    @map("balance_after_units")
 

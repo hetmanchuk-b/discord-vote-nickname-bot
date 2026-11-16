@@ -30,6 +30,7 @@ async function fixture(callback) {
       guildId, userId, day: day.day, points: index === 6 ? 0 : index < 2 ? 2 : 1,
       eligibleMs: (index === 6 ? 9 : index === 0 ? 29 : index === 1 ? 22 : 10 + index) * 60000,
       balanceAfter: 100 + index,
+      soloMs: index === 0 ? 755000 : index === 6 ? 60000 : 0,
     }));
     await database.reputationSettlement.create({ data: {
       guildId, day: day.day, startedAt: day.start, endedAt: day.end,
@@ -61,7 +62,7 @@ test('snapshot ranking, ten-person pages, and settled balance values survive era
     const extra = Array.from({ length: 5 }, (_, i) => String(111111111111111120n + BigInt(i)));
     await f.database.reputationMember.createMany({ data: extra.map(userId => ({ guildId: f.guildId, userId, balance: 900 })) });
     await f.database.reputationDailyAward.createMany({ data: extra.map((userId, i) => ({
-      guildId: f.guildId, userId, day: f.day.day, points: 1, eligibleMs: 600000, balanceAfter: 200 + i,
+      guildId: f.guildId, userId, day: f.day.day, points: 1, eligibleMs: 600000, soloMs: i === 4 ? 125000 : 0, balanceAfter: 200 + i,
     })) });
     await f.store.prepare(f.report.id);
     await f.store.finish(f.report.id);
@@ -75,6 +76,9 @@ test('snapshot ranking, ten-person pages, and settled balance values survive era
     assert.equal(last.entries[0].userId, extra[4]);
     assert.equal(last.entries[0].position, 10);
     assert.equal(last.entries[0].balanceAfter, 204);
+    assert.equal(last.entries[0].soloMs, 125000);
+    assert.equal(first.entries[0].soloMs, 755000);
+    assert.equal(first.entries[1].soloMs, 0);
     await assert.rejects(f.store.snapshot(f.report.id, 2), /Invalid report page/);
     assert.equal(first.entries[0].balanceAfter, 100); // Not the current live 900.
     await f.tracking.deleteMemberData(f.guildId, users[0], new Date());
@@ -85,6 +89,7 @@ test('snapshot ranking, ten-person pages, and settled balance values survive era
     const navigation = createReportNavigation(async () => {}, restarted);
     const page = await navigation.page({ reportId: f.report.id, page: 0, guildId: f.guildId, channelId, messageId });
     assert.match(page.embeds[0].toJSON().fields[0].value, /100/);
+    assert.match(page.embeds[0].toJSON().fields[0].value, /Наодинці: \*\*0 год 12 хв 35 с/);
     assert.equal((await restarted.pending(f.guildId)).length, 0);
     assert.equal(await f.database.reputationMember.findUniqueOrThrow({ where: {
       guildId_userId: { guildId: f.guildId, userId: users[0] },
