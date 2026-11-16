@@ -24,10 +24,10 @@ test('zero/unknown historical solo duration adds no line or claim of company', (
     assert.doesNotMatch(field.value, /Наодинці|разом|компанії/);
   }
 });
-test('solo labels preserve ten-person pagination and support full 25-hour DST days', () => {
-  const entries = Array.from({ length: 10 }, (_, position) => ({ ...entry, position, eligibleMs: 90000000, soloMs: position === 0 ? 90000000 : 0 }));
-  const payload = renderReport({ report: { ...report, entryCount: 11 }, entries, page: 0 });
+test('solo labels preserve fifteen-person pagination and support full 25-hour DST days', () => {
+  const entries = Array.from({ length: 15 }, (_, position) => ({ ...entry, position, eligibleMs: 90000000, soloMs: position === 0 ? 90000000 : 0 }));
+  const payload = renderReport({ report: { ...report, entryCount: 16, pageSize: 15 }, entries, page: 0 });
   const embed = payload.embeds[0].toJSON();
-  assert.equal(embed.fields.length, 10); assert.match(embed.fields[0].value, /Наодинці: \*\*25 год 0 хв 0 с/);
+  assert.equal(embed.fields.length, 15); assert.match(embed.fields[0].value, /Наодинці: \*\*25 год 0 хв 0 с/);
   assert.doesNotMatch(embed.fields[1].value, /Наодинці/); assert.equal(payload.components.length, 1);
 });

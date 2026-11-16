@@ -172,6 +172,8 @@ model ReputationReport {
   activityMs    BigInt                 @default(0) @map("activity_ms")
   pointsAwarded Int                    @default(0) @map("points_awarded_units")
   entryCount    Int                    @default(0) @map("entry_count")
+  pageSize      Int                    @default(15) @map("page_size")
+  formatVersion Int                    @default(2) @map("format_version")
 
   guild      ReputationGuild         @relation(fields: [guildId], references: [guildId], onDelete: Restrict)
   settlement ReputationSettlement    @relation(fields: [guildId, day], references: [guildId, day], onDelete: Restrict)
@@ -192,6 +194,11 @@ model ReputationReportEntry {
   soloMs       Int?   @map("solo_ms")
   points       Int    @map("points_units")
   balanceAfter Int    @map("balance_after_units")
+  dailyPoints  Int?   @map("daily_points_units")
+  voteRewards  Int?   @map("vote_rewards_units")
+  votePenalties Int?  @map("vote_penalties_units")
+  rewardVoteCount Int? @map("reward_vote_count")
+  penaltyVoteCount Int? @map("penalty_vote_count")
 
   report ReputationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
@@ -248,6 +255,7 @@ model VoiceReputationPoll {
   votes          VoiceReputationVote[]
 
   @@index([guildId, status, endsAt])
+  @@index([guildId, status, closedAt], map: "voice_reputation_polls_report_day_idx")
   @@index([guildId, publishedAt, lastAttemptAt], map: "voice_reputation_polls_publication_retry_idx")
   @@map("voice_reputation_polls")
 }

@@ -15,10 +15,10 @@ const origin = Date.parse('2026-11-11T22:00:00Z');
 function report(overrides = {}) {
   return { id, guildId: 'guild', day: '2026-11-11', status: 'pending', channelId: null, messageId: null,
     createdAt: new Date(origin), preparedAt: new Date(origin), publishedAt: null,
-    activityMs: 600000n, pointsAwarded: 1, entryCount: 1, startedAt: new Date(origin - 86400000),
+    activityMs: 600000n, pointsAwarded: 1, entryCount: 1, pageSize: 15, formatVersion: 2, startedAt: new Date(origin - 86400000),
     endedAt: new Date(origin), incomplete: false, verifiedMs: 86400000, ...overrides };
 }
-const entry = position => ({ userId: `user-${position}`, position, eligibleMs: 600000, soloMs: 0, points: 1, balanceAfter: 100 + position });
+const entry = position => ({ userId: `user-${position}`, position, eligibleMs: 600000, soloMs: 0, points: 1, balanceAfter: 100 + position, dailyPoints: 1, voteRewards: 0, votePenalties: 0, rewardVoteCount: 0, penaltyVoteCount: 0 });
 
 function publisherFixture(t, overrides = {}) {
   const timers = [];
@@ -144,24 +144,24 @@ test('a wake-up arriving during publication is coalesced into a follow-up scan',
   await f.publisher.stop();
 });
 
-test('report rendering is ten per page with frozen balances and disabled edge buttons', () => {
-  const first = renderReport({ report: report({ entryCount: 11 }), entries: Array.from({ length: 10 }, (_, i) => entry(i)), page: 0 });
-  assert.equal(first.embeds[0].toJSON().fields.length, 10);
+test('report rendering is fifteen per page with frozen balances and disabled edge buttons', () => {
+  const first = renderReport({ report: report({ entryCount: 16 }), entries: Array.from({ length: 15 }, (_, i) => entry(i)), page: 0 });
+  assert.equal(first.embeds[0].toJSON().fields.length, 15);
   assert.match(first.embeds[0].toJSON().footer.text, /Сторінка 1\/2/);
   assert.match(first.embeds[0].toJSON().fields[0].value, /100/);
   const buttons = first.components[0].toJSON().components;
   assert.equal(buttons[0].disabled, true);
   assert.equal(buttons[1].disabled, false);
-  const last = renderReport({ report: report({ entryCount: 11 }), entries: [entry(10)], page: 1 });
+  const last = renderReport({ report: report({ entryCount: 16 }), entries: [entry(15)], page: 1 });
   assert.match(last.embeds[0].toJSON().footer.text, /Сторінка 2\/2/);
-  assert.match(last.embeds[0].toJSON().fields[0].name, /#11/);
+  assert.match(last.embeds[0].toJSON().fields[0].name, /#16/);
   assert.equal(last.embeds[0].toJSON().fields.length, 1);
   assert.equal(last.components[0].toJSON().components[1].disabled, true);
   assert.deepEqual(first.allowedMentions, { parse: [] });
   assert.ok(buttons.every(button => button.custom_id.length <= 100));
 });
 
-for (const count of [1, 5, 6, 10]) {
+for (const count of [1, 5, 10, 15]) {
   test(`${count} report entries fit on a single page without navigation buttons`, () => {
     const payload = renderReport({ report: report({ entryCount: count }), entries: Array.from({ length: count }, (_, i) => entry(i)), page: 0 });
     assert.equal(payload.embeds[0].toJSON().fields.length, count);
@@ -176,7 +176,7 @@ for (const [overrides, text] of [
   [{ entryCount: 0, activityMs: 0n, incomplete: true }, 'No verified activity recorded'],
 ]) {
   test(`empty report distinguishes: ${text}`, () => {
-    const payload = renderReport({ report: report(overrides), entries: [], page: 0 });
+    const payload = renderReport({ report: report({ ...overrides, formatVersion: 1, pageSize: 10 }), entries: [], page: 0 });
     assert.match(payload.embeds[0].toJSON().description, new RegExp(text));
     assert.deepEqual(payload.components, []);
   });
@@ -195,10 +195,10 @@ test('report warns about partial coverage and labels delayed original-day result
 
 test('navigation validates report status and exact guild/channel/message before reading entries', async () => {
   let reads = 0;
-  const current = report({ status: 'published', channelId: 'channel', messageId: 'message', entryCount: 11 });
+  const current = report({ status: 'published', channelId: 'channel', messageId: 'message', entryCount: 16 });
   const navigation = createReportNavigation(async () => {}, {
     get: async () => current,
-    snapshot: async (_id, page) => { reads++; return { report: current, entries: [entry(page * 10)], page }; },
+    snapshot: async (_id, page) => { reads++; return { report: current, entries: [entry(page * 15)], page }; },
   });
   const request = { reportId: id, page: 1, guildId: 'guild', channelId: 'channel', messageId: 'message' };
   for (const change of [{ guildId: 'other' }, { channelId: 'other' }, { messageId: 'other' }, { page: -1 }, { page: 2 }]) {
@@ -207,7 +207,7 @@ test('navigation validates report status and exact guild/channel/message before 
   assert.equal(reads, 0);
   assert.ok(await navigation.page(request));
   assert.equal(reads, 1);
-  current.entryCount = 10;
+  current.entryCount = 15;
   assert.equal(await navigation.page(request), null);
   assert.equal(reads, 1);
   current.status = 'publishing';

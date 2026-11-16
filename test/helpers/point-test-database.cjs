@@ -4,7 +4,7 @@
 // use the real client directly and assert actual persisted integer units.
 const {createReputationDatabase: createRawDatabase}=require('../../dist/reputation/database.js');
 const financialModels=new Set(['reputationMember','reputationSettlement','reputationDailyAward','reputationReport','reputationReportEntry','voiceReputationPoll']);
-const financialFields=new Set(['balance','points','pointsAwarded','balanceAfter','balanceBefore','basePoints','attendanceBonus','absencePenalty','amount','appliedAmount']);
+const financialFields=new Set(['balance','points','pointsAwarded','balanceAfter','balanceBefore','basePoints','attendanceBonus','absencePenalty','amount','appliedAmount','dailyPoints','voteRewards','votePenalties']);
 function convert(value,factor,money=false){
   if(typeof value==='number')return money?value*factor:value;
   if(value===null||typeof value!=='object'||value instanceof Date)return value;

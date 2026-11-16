@@ -2,12 +2,18 @@ import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
 import { fromPointUnits } from './point-units.js';
 import { getReputationDatabase } from './database.js';
-import { REPORT_PAGE_SIZE } from './report-pagination.js';
+import { REPORT_PAGE_SIZE, reportPageCount, reportPageSize } from './report-pagination.js';
+import { summarizeReportChanges } from './report-changes.js';
+import type { ReportVoteTotals } from './report-changes.js';
 
 const include = { settlement: true } as const;
 type StoredReport = Prisma.ReputationReportGetPayload<{ include: typeof include }>;
 export type DailyReport = ReturnType<typeof view>;
-export interface ReportEntry { userId: string; position: number; eligibleMs: number; soloMs: number | null; points: number; balanceAfter: number }
+export interface ReportEntry {
+  userId: string; position: number; eligibleMs: number; soloMs: number | null; points: number; balanceAfter: number;
+  dailyPoints: number | null; voteRewards: number | null; votePenalties: number | null;
+  rewardVoteCount: number | null; penaltyVoteCount: number | null;
+}
 export interface ReportSnapshot { report: DailyReport; entries: ReportEntry[]; page: number }
 
 function view(row: StoredReport) {
@@ -16,6 +22,7 @@ function view(row: StoredReport) {
     channelId: row.channelId, messageId: row.messageId,
     createdAt: row.createdAt, preparedAt: row.preparedAt, publishedAt: row.publishedAt,
     activityMs: row.activityMs, pointsAwarded: fromPointUnits(row.pointsAwarded), entryCount: row.entryCount,
+    pageSize: row.pageSize, formatVersion: row.formatVersion,
     startedAt: row.settlement.startedAt, endedAt: row.settlement.endedAt,
     incomplete: row.settlement.incomplete, verifiedMs: row.settlement.verifiedMs,
   };
@@ -94,19 +101,33 @@ export function createReportStore(getDatabase: () => PrismaClient = getReputatio
           where: { guildId: row.guildId, day: row.day },
           orderBy: [{ points: 'desc' }, { eligibleMs: 'desc' }, { userId: 'asc' }],
         });
-        const earners = awards.filter(award => award.points > 0);
-        if (earners.length) await tx.reputationReportEntry.createMany({
-          data: earners.map((award, position) => ({
-            reportId: id, guildId: row.guildId, userId: award.userId, position,
-            eligibleMs: award.eligibleMs, soloMs: award.soloMs, points: award.points, balanceAfter: award.balanceAfter,
-          })),
+        // Recorded financial application time, not deadline/proposal/publication time, determines
+        // the Kyiv day. Current daily rows + identity creation cutoffs prevent
+        // retained public poll history from resurrecting erased member data.
+        const votes = await tx.$queryRaw<ReportVoteTotals[]>`
+          SELECT p.target_id AS "userId",
+            COALESCE(SUM(p.applied_amount_units) FILTER (WHERE p.kind='reward'),0)::bigint AS rewards,
+            COALESCE(SUM(p.applied_amount_units) FILTER (WHERE p.kind='penalty'),0)::bigint AS penalties,
+            COUNT(*) FILTER (WHERE p.kind='reward') AS "rewardCount",
+            COUNT(*) FILTER (WHERE p.kind='penalty') AS "penaltyCount"
+          FROM voice_reputation_polls p
+          JOIN reputation_members m ON m.guild_id=p.guild_id AND m.user_id=p.target_id
+          JOIN reputation_daily_awards a ON a.guild_id=p.guild_id AND a.user_id=p.target_id AND a.day=${row.day}
+          WHERE p.guild_id=${row.guildId} AND p.status='succeeded' AND p.applied_amount_units>0
+            AND p.kind IN ('reward','penalty') AND p.created_at>=m.created_at
+            AND p.closed_at>=${row.settlement.startedAt} AND p.closed_at<${row.settlement.endedAt}
+          GROUP BY p.target_id`;
+        const changes = summarizeReportChanges(awards, votes);
+        if (changes.entries.length) await tx.reputationReportEntry.createMany({
+          data: changes.entries.map((entry, position) => ({ ...entry, reportId: id, guildId: row.guildId, position })),
         });
         return view(await tx.reputationReport.update({
           where: { id }, include,
           data: {
-            status: 'publishing', preparedAt: new Date(), entryCount: earners.length,
+            status: 'publishing', preparedAt: new Date(), entryCount: changes.entries.length,
+            pageSize: REPORT_PAGE_SIZE, formatVersion: 2,
             activityMs: awards.reduce((total, award) => total + BigInt(award.eligibleMs), 0n),
-            pointsAwarded: earners.reduce((total, award) => total + award.points, 0),
+            pointsAwarded: changes.pointsAwarded,
           },
         }));
       }, transaction);
@@ -129,15 +150,19 @@ export function createReportStore(getDatabase: () => PrismaClient = getReputatio
     },
     async snapshot(id, page) {
       const row = await getDatabase().reputationReport.findUniqueOrThrow({ where: { id }, include });
-      if (!Number.isSafeInteger(page) || page < 0 || page >= Math.max(1, Math.ceil(row.entryCount / REPORT_PAGE_SIZE))) {
+      if (!Number.isSafeInteger(page) || page < 0 || page >= reportPageCount(row)) {
         throw new Error('Invalid report page.');
       }
       const entries = await getDatabase().reputationReportEntry.findMany({
-        where: { reportId: id }, orderBy: { position: 'asc' }, skip: page * REPORT_PAGE_SIZE, take: REPORT_PAGE_SIZE,
-        select: { userId: true, position: true, eligibleMs: true, soloMs: true, points: true, balanceAfter: true },
+        where: { reportId: id }, orderBy: { position: 'asc' }, skip: page * reportPageSize(row), take: reportPageSize(row),
+        select: { userId: true, position: true, eligibleMs: true, soloMs: true, points: true, balanceAfter: true,
+          dailyPoints: true, voteRewards: true, votePenalties: true, rewardVoteCount: true, penaltyVoteCount: true },
       });
       return { report: view(row), entries: entries.map(entry => ({ ...entry,
         points: fromPointUnits(entry.points), balanceAfter: fromPointUnits(entry.balanceAfter),
+        dailyPoints: entry.dailyPoints === null ? null : fromPointUnits(entry.dailyPoints),
+        voteRewards: entry.voteRewards === null ? null : fromPointUnits(entry.voteRewards),
+        votePenalties: entry.votePenalties === null ? null : fromPointUnits(entry.votePenalties),
       })), page };
     },
   };

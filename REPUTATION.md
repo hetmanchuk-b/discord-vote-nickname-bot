@@ -234,19 +234,26 @@ Time should be accumulated before rounding, not rounded separately for each visi
 
 - Post to a main text channel that will be explicitly configured; do not guess the destination.
 - Describe the **previous Kyiv calendar day**, clearly stating its date.
-- Include all members whose daily award is greater than zero, paginated with **10 members per page**.
+- New reports include every member with an actual nonzero automatic daily change or a successful applied vote reward/penalty, with **15 members per page**. Include members whose gains and losses cancel to zero net; omit members with no actual changes. Already-frozen legacy reports keep their original positive-earner snapshots and 10-person pagination.
 - Use **shared pagination**: a public embed with Previous/Next buttons. Members can navigate; the bot updates the visible page for everyone. Navigating cannot modify stored statistics.
 - Display page numbers and disable navigation where there is no previous/next page. Single-page reports need no navigation controls.
 - Historical pagination remains available after restarts, using saved daily results rather than temporary in-memory sessions.
-- When nobody participated and tracking was complete, still publish a report with **"No activity recorded"**.
+- When no reputation changes occurred, new reports say **"Змін репутації за день немає."**. This is not used when offsetting changes produce a zero net total. Legacy empty reports retain their original activity/no-earner labels.
 - Distinguish genuinely absent activity from missing observations during bot downtime.
 - A day with incomplete tracking must include a clear coverage warning; do not imply the bot observed zero activity for the entire day.
 - Delayed reports should retain the original day and be identifiable as delayed.
-- If eligible activity occurred but nobody earned a point, publish **"No reputation earned today"**, without listing zero-point members.
-- Each earning member's entry shows eligible voice time, daily points earned, and total settled reputation. When verified solo duration is positive, add `Наодинці: …` on a separate line. This is actual unweighted solo time already included in the eligible total, not additional time or points. Omit the line for known zero or uncaptured historical detail.
-- Order by daily points descending, then eligible voice time descending, then user ID for a stable final tie-breaker.
+- No-op capped/cancelled/failed votes and zero-value automatic awards alone do not qualify a member. Attendance/absence eligibility, outage exemptions and balance bounds are unchanged; reports never apply money.
+- Each entry shows eligible voice time, the signed net daily change, and the frozen settlement balance. Separate lines identify actual time/attendance earnings, missed-day deductions, vote rewards and vote penalties; vote amounts are actual capped amounts and counts mean successful polls, not voters. Reasons and voter identities are not duplicated. When verified solo duration is positive, add `Наодинці: …` on a separate line. This is actual unweighted solo time already included in the eligible total, not additional time or points. Omit the line for known zero or uncaptured historical detail.
+- Order by net daily change descending, then eligible voice time descending, then user ID for a stable final tie-breaker.
 - Snapshot total balances and each entry's actual solo milliseconds so historical report values remain stable after restarts, member erasure, and raw-interval retention. New snapshots copy `soloMs` from the settled daily award; old snapshots remain NULL/unknown and are not reconstructed or repriced.
+- Vote changes belong to the half-open Kyiv-day boundary recorded for the settlement (`Europe/Kyiv`, including DST), using the poll's financial application/closure timestamp `closed_at`, not its proposal, deadline or Discord delivery date. Count only succeeded polls with a positive actual applied amount.
+- A current daily award is required for inclusion; retained public vote history cannot recreate erased private daily results. Polls created before the member identity's erasure/reset cutoff are excluded after re-enrollment. Personally paused participants remain eligible for vote reporting.
+- The balance remains the daily settlement checkpoint snapshot, not a live balance or a newly reconstructed midnight balance. With delayed accounting it may already include later-day actions; the day's change breakdown still uses the defined logical day/closure boundaries.
 - If no usable report channel is configured, continue tracking and settlement, queue reports, and publish them once a valid destination is configured. Log delivery failures without interrupting accounting.
+
+### Complete-change report cutover
+
+Migration `20261111150000_all_daily_changes` was **applied to the hosted database with explicit approval and confirmation that the bot was stopped**. All sixteen migrations are applied and the schema diff is clean. Before/after streaming checksums and table OIDs verified unchanged existing values across all sixteen application tables; legacy page sizes/formats and unknown breakdowns were preserved, and new defaults, validated constraints/index and migration checksum/history verified. It stores nullable legacy/known new breakdown components (quarter units) and poll counts, supports signed report totals/entries, adds a financial-closure lookup index, and persists page size/format version. Existing frozen reports retain page size 10, format 1 and unknown breakdowns without repricing history; pending reports upgrade atomically when prepared, and new reports use page size 15/format 2. Other installations require explicit approval and stopped-bot confirmation before applying the migration. Upload the full matching build before restarting; bot deployment/start has not been performed for this extension. No command re-registration is needed solely for this feature.
 
 ### Solo-time report cutover
 

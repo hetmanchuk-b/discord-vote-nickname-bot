@@ -57,25 +57,27 @@ async function fixture(callback) {
   }
 }
 
-test('snapshot ranking, ten-person pages, and settled balance values survive erasure and restart', options, async () => {
+test('snapshot ranking, fifteen-person pages, and settled balance values survive erasure and restart', options, async () => {
   await fixture(async f => {
-    const extra = Array.from({ length: 5 }, (_, i) => String(111111111111111120n + BigInt(i)));
+    const extra = Array.from({ length: 10 }, (_, i) => String(111111111111111120n + BigInt(i)));
     await f.database.reputationMember.createMany({ data: extra.map(userId => ({ guildId: f.guildId, userId, balance: 900 })) });
     await f.database.reputationDailyAward.createMany({ data: extra.map((userId, i) => ({
-      guildId: f.guildId, userId, day: f.day.day, points: 1, eligibleMs: 600000, soloMs: i === 4 ? 125000 : 0, balanceAfter: 200 + i,
+      guildId: f.guildId, userId, day: f.day.day, points: 1, eligibleMs: 600000, soloMs: i === 9 ? 125000 : 0, balanceAfter: 200 + i,
     })) });
     await f.store.prepare(f.report.id);
     await f.store.finish(f.report.id);
     const first = await f.store.snapshot(f.report.id, 0);
     const last = await f.store.snapshot(f.report.id, 1);
-    assert.equal(first.report.entryCount, 11);
-    assert.equal(first.entries.length, 10);
+    assert.equal(first.report.entryCount, 16);
+    assert.equal(first.report.pageSize, 15);
+    assert.equal(first.report.formatVersion, 2);
+    assert.equal(first.entries.length, 15);
     assert.equal(last.entries.length, 1);
     assert.deepEqual(first.entries.slice(0, 2).map(entry => entry.userId), users.slice(0, 2));
-    assert.deepEqual(first.entries.slice(2).map(entry => entry.userId), [users[5], users[4], users[3], users[2], ...extra.slice(0, 4)]);
-    assert.equal(last.entries[0].userId, extra[4]);
-    assert.equal(last.entries[0].position, 10);
-    assert.equal(last.entries[0].balanceAfter, 204);
+    assert.deepEqual(first.entries.slice(2).map(entry => entry.userId), [users[5], users[4], users[3], users[2], ...extra.slice(0, 9)]);
+    assert.equal(last.entries[0].userId, extra[9]);
+    assert.equal(last.entries[0].position, 15);
+    assert.equal(last.entries[0].balanceAfter, 209);
     assert.equal(last.entries[0].soloMs, 125000);
     assert.equal(first.entries[0].soloMs, 755000);
     assert.equal(first.entries[1].soloMs, 0);
