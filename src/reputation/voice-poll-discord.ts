@@ -5,6 +5,8 @@ import type { VoicePoll } from './voice-poll-store.js';
 import { VoicePollRuntime, VoicePollUserError } from './voice-poll-runtime.js';
 import type { VoicePollMessage, VoicePollPresence, VoicePollTransport } from './voice-poll-runtime.js';
 import { voicePollMarker, renderVoicePoll } from './voice-poll-render.js';
+import { VoicePollAudio } from './voice-poll-audio.js';
+import { createDiscordVoiceAnnouncementDriver } from './voice-poll-audio-discord.js';
 
 interface Transition { at: number; id: string; from: string | null; to: string | null; human: boolean | undefined }
 export class DiscordVoicePollPresence implements VoicePollPresence {
@@ -142,7 +144,8 @@ export function attachVoicePolls(client: Client, beforeCreate?: () => Promise<vo
   const configured=process.env.REPUTATION_GUILD_ID?.trim();
   const guildId=configured && /^\d{17,20}$/.test(configured) ? configured : undefined;
   const presence=new DiscordVoicePollPresence(client,guildId);
-  const runtime=new VoicePollRuntime({guildId,presence,beforeCreate,store:createVoicePollStore(),transport:createVoicePollTransport(client,guildId ?? '')});
+  const audio = new VoicePollAudio(createDiscordVoiceAnnouncementDriver(client));
+  const runtime=new VoicePollRuntime({guildId,presence,beforeCreate,onStarted:poll=>audio.play(poll),store:createVoicePollStore(),transport:createVoicePollTransport(client,guildId ?? '')});
   const resume=()=>{presence.online();void runtime.refresh();};
   const observe=(oldState: VoiceState,newState: VoiceState)=>presence.observe(oldState,newState);
   const offline=(_event:unknown,shardId:number)=>{if(guildId && client.guilds.cache.get(guildId)?.shardId===shardId)presence.offline();};
@@ -158,6 +161,7 @@ export function attachVoicePolls(client: Client, beforeCreate?: () => Promise<vo
   client.on(Events.GuildAvailable,available);client.on(Events.GuildCreate,available);
   if(client.isReady())resume();
   return { runtime, async stop(){
+    audio.stop();
     presence.offline();
     client.off(Events.ClientReady,resume);client.off(Events.VoiceStateUpdate,observe);
     client.off(Events.ShardDisconnect,offline);client.off(Events.ShardReconnecting,reconnecting);

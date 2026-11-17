@@ -63,6 +63,12 @@ Migration `20261111080000_voice_rewards` was applied to the hosted database with
 
 All **305 tests** passed with local database integration, including capped/exact-once credits, paused/floor targets, veto/no-Yes/unverified outcomes, cross-kind reservation/button isolation, erasure, settlement races, legacy schema upgrades/history preservation, and rollback of legacy-style reward debits. Build, type-check, lint, schema validation, fresh local migration deployment and schema-diff checks passed.
 
+## Voice poll start audio
+
+Both reward and penalty polls announce a fresh confirmed activation using `assets/voting.mp3`. The build bundles a capped Opus derivative at `dist/assets/voting.ogg`; the runtime does not need FFmpeg/Opus encoding. Playback is independent of financial/publishing/deadline jobs and is best-effort: no missing permission/file/network/decoder failure can cancel or repeat a poll. Recovery of already-active polls does not replay audio. The bot disconnects on audio completion, shutdown, movement/server-mute or connection failure, with a hard 15-second total setup/playback cap. A fresh poll preempts prior music in this single configured guild; no stale-audio queue is created.
+
+Voice View Channel/Connect/Speak permissions and available room capacity are required (or existing Move Members permission for a full room). The bot joins self-deafened, never subscribes to received audio, and does not alter member/room permissions or limits. Its presence remains a bot, never company for solo earning rates or a human voter. Existing external voice connections are not hijacked. Deploy the full new build/audio and updated production dependencies (including DAVE's optional platform binaries); no migration or slash-command registration is needed solely for this feature. Real Discord playback/deployment has not been performed by the agent.
+
 ## Quarter-point accounting and 25% solo rate
 
 Implemented integer quarter-unit storage with public point-valued views and localized quarter-point formatting. Live tracking records interval `earning_rate` (1 solo / 4 full), flushes rate changes even for same-roster room moves, and combines weighted time before one daily quarter rounding. Daily `solo_ms` and unweighted `eligible_ms` preserve attendance/graph history after raw retention. Bonuses, absence penalties, streak qualification, displayed bounds and vote choices are unchanged; capped votes can apply an exact 0.25-point delta.

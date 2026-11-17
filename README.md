@@ -297,6 +297,14 @@ Rewards are added immediately and stop at **5,000**. A requested +100 at 4,980 a
 
 **Hosted schema:** the first nine migrations through `20261111080000_voice_rewards` were applied with approval. The reward migration adds a poll kind (existing rows stay penalties) and a pre-balance audit, preserving old messages, votes, results and balances. Its database direction check prevents a legacy penalty-only binary from debiting a reward. Register the reward command explicitly with `npm run commands` if not already registered.
 
+### Voice voting announcement
+
+A freshly confirmed `/voice-penalty` or `/voice-reward` start triggers best-effort audio in that poll's original voice room. The bot leaves when the clip ends or after **15 seconds maximum**, including connection/setup time. A new vote interrupts the bot's previous announcement; audio is not queued. Existing active polls recovered after restart/reconnect do not replay the sound, and failed/cancelled activations do not announce. Audio failures never cancel, duplicate or delay financial voting/deadline handling.
+
+The source is `assets/voting.mp3`. `npm run build` converts its first at-most-15 seconds to `dist/assets/voting.ogg` (Opus) using the local `ffmpeg-static` development dependency. Upload the **complete fresh `dist/`**, including that audio file, and matching manifests; run `npm ci --omit=dev` on the host with optional platform dependencies retained. Voting audio needs neither runtime FFmpeg nor an Opus encoder; `@discordjs/voice` includes DAVE support. Node 24 and working Discord voice/UDP connectivity are required. If a fresh local install blocks the FFmpeg download script, review/approve only `ffmpeg-static` rather than enabling every unrelated dependency script.
+
+The bot needs **View Channel, Connect and Speak** in the room. A full room needs a free slot or existing Move Members permission (the bot does not change room limits or move anyone). It joins self-deafened and never records/receives other people's audio. Moving/server-muting it or losing the connection stops the announcement; an existing voice connection owned by another feature is not reused or taken over. Shutdown tears down playback. No schema migration or command re-registration is needed for audio. Live audio/deployment has not been tested/performed by the agent; automated tests mock voice connections and validate the real generated Opus stream offline.
+
 ### Neutral shared voting names — hosted schema updated
 
 Both commands use `voice-poll-*` modules and `client.voicePolls`. Prisma models are `VoiceReputationPoll` / `VoiceReputationVote`; PostgreSQL tables are `voice_reputation_polls` / `voice_reputation_votes`. `appliedAmount` (`applied_amount`) is a positive applied magnitude; `kind` determines debit or credit.

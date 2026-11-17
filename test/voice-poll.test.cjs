@@ -15,7 +15,7 @@ const guildId='999999999999999999',target='111111111111111111',caller='222222222
 const origin=Date.parse('2026-11-11T12:00:00Z');
 const initial=()=>({id,guildId,kind:'penalty',targetId:target,initiatorId:caller,voiceChannelId:'voice',textChannelId:'text',amount:50,proposalReason:null,
   status:'creating',messageId:null,createdAt:new Date(origin),startedAt:null,endsAt:null,closedAt:null,appliedAmount:0,balanceAfter:null,noVoterIds:[],publishing:false,publishedAt:null,messageMissing:false});
-function runtimeFixture(t,saved=null,beforeCreate){
+function runtimeFixture(t,saved=null,beforeCreate,onStarted){
   let at=origin;let poll=saved?structuredClone(saved):null;let dbDown=false;let lostAck=false;let verification=true;let found=null;
   const timers=[],evidence=[],edits=[],votes=[];let reserves=0,publishes=0,finished=0;
   const humans=new Set([target,caller,other,fourth]);
@@ -39,7 +39,7 @@ function runtimeFixture(t,saved=null,beforeCreate){
   let shown='active';
   const transport={publish:async()=>{publishes++;found={id:'message',at:new Date(at)};return found;},find:async()=>found,
     inspect:async()=>shown,edit:async(_poll,payload)=>{edits.push(payload);shown='final';if(lostAck){lostAck=false;throw new Error('lost acknowledgement');}}};
-  const runtime=new VoicePollRuntime({guildId,store,transport,presence,beforeCreate,now:()=>new Date(at)});
+  const runtime=new VoicePollRuntime({guildId,store,transport,presence,beforeCreate,onStarted,now:()=>new Date(at)});
   return {runtime,humans,timers,evidence,edits,votes,store,
     at:ms=>{at=origin+ms;},dbDown:value=>{dbDown=value;},verify:value=>{verification=value;},loseAck:()=>{lostAck=true;},
     poll:()=>poll,missing:()=>{shown='missing';},reserves:()=>reserves,publishes:()=>publishes,finished:()=>finished,
@@ -65,6 +65,26 @@ test('an available voice tracker is flushed before enrollment is checked',async 
   let flushed=false;const f=runtimeFixture(t,null,async()=>{flushed=true;});
   const reserve=f.store.reserve;f.store.reserve=async request=>{assert.equal(flushed,true);return reserve(request);};
   await start(f);await f.runtime.stop();
+});
+
+for(const kind of ['penalty','reward'])test(`${kind} announces once after confirmed activation, but active restart recovery never announces`,async t=>{
+ const announcements=[];const f=runtimeFixture(t,null,undefined,poll=>announcements.push(poll));
+ await f.runtime.create({guildId,initiatorId:caller,targetId:target,textChannelId:'text',amount:50,proposalReason:'Тестова причина',kind});
+ assert.equal(announcements.length,1);assert.equal(announcements[0].status,'active');assert.equal(announcements[0].voiceChannelId,'voice');assert.equal(announcements[0].kind,kind);
+ await f.runtime.refresh();assert.equal(announcements.length,1);
+ const saved=structuredClone(f.poll());await f.runtime.stop();
+ const restarted=runtimeFixture(t,saved,undefined,()=>assert.fail('replayed audio'));
+ await restarted.runtime.refresh();await restarted.runtime.stop();
+});
+for(const asynchronous of [false,true])test(`announcement failure (async: ${asynchronous}) cannot cancel voting or lose its deadline`,async t=>{
+ const f=runtimeFixture(t,null,undefined,()=>{if(asynchronous)return Promise.reject(new Error('private voice detail'));throw new Error('private voice detail');});
+ const result=await start(f);await settle();assert.equal(result.status,'active');assert.ok(f.deadline());assert.equal(f.reserves(),1);
+ await f.runtime.stop();
+});
+test('cancelled activation never announces',async t=>{
+ let announcements=0;const f=runtimeFixture(t,null,undefined,()=>{announcements++;});
+ const activate=f.store.activate;f.store.activate=async(...args)=>{await activate(...args);f.poll().status='cancelled';return structuredClone(f.poll());};
+ await start(f);await settle();assert.equal(announcements,0);await f.runtime.stop();
 });
 
 test('deadline captures the original channel before awaits; only one remaining voter is sufficient',async t=>{

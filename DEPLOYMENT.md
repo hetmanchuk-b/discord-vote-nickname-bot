@@ -80,7 +80,7 @@ Do not put the Discord token in GitHub's backup secrets. The backup workflow doe
 
 Upload through KataBump's file manager or SFTP:
 
-- The **entire `dist/` directory**, including `dist/generated/prisma/`.
+- The **entire `dist/` directory**, including `dist/generated/prisma/` and `dist/assets/voting.ogg`.
 - `package.json` and `package-lock.json`.
 - Private `data/config.json` containing the bot token/client ID.
 - A minimal private server `.env`, or equivalent hosting environment variables.
@@ -108,6 +108,12 @@ npm ci --omit=dev
 KataBump may run installation automatically; verify its configured behavior. The bot uses the prebuilt output and does not need TypeScript or the Prisma CLI on the production host. Build locally again after source/schema changes and upload the complete new `dist/`, not only `index.js`.
 
 The existing downloader's install-script/deprecation warnings are separate from reputation startup. Do not blindly approve every dependency script or run forced dependency upgrades as a deployment fix.
+
+### Voting audio deployment
+
+The new audio module adds `@discordjs/voice` (DAVE-capable) to production dependencies and `ffmpeg-static` to local development dependencies. Build locally with the original `assets/voting.mp3`; `npm run build` creates a maximum-15-second Opus clip at `dist/assets/voting.ogg`. Install production dependencies with the matching new lockfile using `npm ci --omit=dev`; do **not** omit optional platform packages required by DAVE. Do not upload Windows node_modules or require local FFmpeg on the Linux host: the prebuilt Opus clip plays directly.
+
+Grant the bot View Channel, Connect and Speak in poll voice rooms, and ensure space for it (or existing Move Members permission for full rooms). Host Discord voice/UDP connectivity must work. Missing access/connectivity only skips/stops sound; voting and reputation accounting continue. The bot leaves at EOF or after 15 seconds including setup, does not record received audio, preempts only its own announcement on a new vote, and never replays existing active polls on restart. No database migration/command registration is required for this extension. Bot upload/start and live voice testing have not been performed by the agent.
 
 ## 4. Configure startup without TypeScript execution
 

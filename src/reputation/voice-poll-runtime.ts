@@ -28,6 +28,7 @@ export interface VoicePolls {
 interface Options {
   guildId?: string; store: VoicePollStore; presence: VoicePollPresence; transport: VoicePollTransport; now?: () => Date;
   beforeCreate?: () => Promise<void>;
+  onStarted?: (poll: VoicePoll) => void | Promise<void>;
 }
 
 export class VoicePollRuntime implements VoicePolls {
@@ -70,6 +71,13 @@ export class VoicePollRuntime implements VoicePolls {
         const active = await this.options.store.activate(poll.id,message.id,message.at,
           this.options.presence.evidence(voiceChannelId,message.at));
         this.watch(active);
+        // Fresh, confirmed activations only. Recovery/retries never replay audio,
+        // and this optional side effect must not affect financial voting.
+        if (!this.stopped && active.status === 'active' && this.options.onStarted) {
+          try {
+            void Promise.resolve(this.options.onStarted(active)).catch(() => console.warn('Voice vote announcement unavailable; voting continues normally.'));
+          } catch { console.warn('Voice vote announcement unavailable; voting continues normally.'); }
+        }
       });
     } catch (error) {
       // Unknown Discord acknowledgements keep the durable reservation. Recovery
