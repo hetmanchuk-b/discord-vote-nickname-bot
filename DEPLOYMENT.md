@@ -115,6 +115,10 @@ The new audio module adds `@discordjs/voice` (DAVE-capable) to production depend
 
 Grant the bot View Channel, Connect and Speak in poll voice rooms, and ensure space for it (or existing Move Members permission for full rooms). Host Discord voice/UDP connectivity must work. Missing access/connectivity only skips/stops sound; voting and reputation accounting continue. The bot leaves at EOF or after 15 seconds including setup, does not record received audio, preempts only its own announcement on a new vote, and never replays existing active polls on restart. No database migration/command registration is required for this extension. Bot upload/start and live voice testing have not been performed by the agent.
 
+If sound is skipped, the updated warning includes an allowlisted diagnostic code, never raw voice errors/tokens. `missing-view`, `missing-connect`, `missing-speak` and `room-full` identify channel access/capacity; `audio-file-missing`/`audio-file-unreadable` identify the bundled asset; `voice-module-unavailable` means the runtime voice/native dependencies failed to load; `connection-in-use` protects another existing voice connection. `connection-setup-failed`, `connection-timeout`, `connection-disconnected`, `voice-error` and `playback-error` distinguish later stages. A `connection-timeout` can indicate unavailable host voice/UDP connectivity; it is not proof of one specific network cause.
+
+A safe host check is `node -e "console.log('Audio file:',require('node:fs').existsSync('dist/assets/voting.ogg'));console.log(require('@discordjs/voice').generateDependencyReport())"`. It prints file existence and dependency versions, not bot tokens. Upload both manifests and install the new production dependencies, rather than copying Windows node_modules. Diagnose a fresh vote: active polls recovered after restart deliberately do not replay sound.
+
 ## 4. Configure startup without TypeScript execution
 
 In **Startup**:

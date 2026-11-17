@@ -1,4 +1,11 @@
 export const VOICE_POLL_AUDIO_LIMIT_MS = 15_000;
+export type VoicePollAudioFailure = 'voice-module-unavailable' | 'guild-unavailable' | 'channel-invalid' | 'bot-member-unavailable' |
+  'missing-view' | 'missing-connect' | 'missing-speak' | 'room-full' | 'connection-in-use' |
+  'audio-file-missing' | 'audio-file-unreadable' | 'connection-setup-failed' | 'connection-timeout' |
+  'connection-disconnected' | 'voice-error' | 'playback-error' | 'cleanup-error' | 'setup-unavailable';
+export class VoicePollAudioError extends Error {
+  constructor(readonly code: VoicePollAudioFailure) { super('Voice announcement unavailable.'); }
+}
 export interface VoiceAnnouncement { id: string; guildId: string; voiceChannelId: string }
 export interface VoiceAnnouncementSession {
   ready: Promise<void>;
@@ -6,7 +13,7 @@ export interface VoiceAnnouncementSession {
   close(): void;
 }
 export interface VoiceAnnouncementDriver {
-  open(request: VoiceAnnouncement, signal: AbortSignal, ended: (failed?: boolean) => void): Promise<VoiceAnnouncementSession | null>;
+  open(request: VoiceAnnouncement, signal: AbortSignal, ended: (failed?: boolean | VoicePollAudioFailure) => void): Promise<VoiceAnnouncementSession | null>;
 }
 interface Playback {
   request: VoiceAnnouncement; controller: AbortController; timer: ReturnType<typeof setTimeout>;
@@ -18,7 +25,7 @@ export class VoicePollAudio {
   private stopped = false;
   private seen = new Set<string>();
   constructor(private readonly driver: VoiceAnnouncementDriver,
-    private readonly warn = () => console.warn('Voice vote audio unavailable; voting continues normally.')) {}
+    private readonly warn = (code: VoicePollAudioFailure) => console.warn(`Voice vote audio unavailable [${code}]; voting continues normally.`)) {}
   play(request: VoiceAnnouncement): void {
     if (this.stopped || this.seen.has(request.id)) return;
     this.seen.add(request.id);
@@ -33,6 +40,7 @@ export class VoicePollAudio {
     void this.start(run);
   }
   private async start(run: Playback): Promise<void> {
+    let phase: VoicePollAudioFailure = 'setup-unavailable';
     try {
       const session = await this.driver.open(run.request, run.controller.signal, failed => this.finish(run, failed));
       if (this.current !== run) {
@@ -41,16 +49,18 @@ export class VoicePollAudio {
       }
       if (!session) { this.finish(run, true); return; }
       run.session = session;
+      phase = 'connection-timeout';
       await session.ready;
+      phase = 'playback-error';
       if (this.current === run) session.play();
-    } catch { this.finish(run, true); }
+    } catch (error) { this.finish(run, error instanceof VoicePollAudioError ? error.code : phase); }
   }
-  private finish(run: Playback, failed = false): void {
+  private finish(run: Playback, failed: boolean | VoicePollAudioFailure = false): void {
     if (this.current !== run) return;
     this.current = undefined;
     clearTimeout(run.timer); run.controller.abort();
-    try { run.session?.close(); } catch { failed = true; }
-    if (failed) this.warn();
+    try { run.session?.close(); } catch { failed = 'cleanup-error'; }
+    if (failed) this.warn(typeof failed === 'string' ? failed : 'setup-unavailable');
   }
   stop(): void {
     this.stopped = true;
