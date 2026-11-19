@@ -7,7 +7,7 @@
 The compact embed has:
 
 - Clickable IMDb title with release year and a small poster thumbnail on the right.
-- Runtime, genres and the short OMDb plot, followed by a clickable [WPARTY](https://wparty.net/s/ds6p2p199fv) watch-room link.
+- Runtime, genres and the short OMDb plot, followed by a clickable [WPARTY](https://wparty.net/s/qp2p0heze62) watch-room link.
 - Director/country as inline fields, followed by cast.
 - Separate external ratings (IMDb, Rotten Tomatoes, Metacritic when available).
 - A clearly separate community average (one decimal, Ukrainian formatting) and number of raters. Before the first rating it says there are no ratings, rather than showing 0/10.

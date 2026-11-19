@@ -80,7 +80,7 @@ test('compact movie embeds separate public-source/community ratings, use a thumb
   const embed = payload.embeds[0].toJSON();
   assert.match(embed.title, /Guardians.*2017/); assert.equal(embed.url, request.link); assert.equal(embed.thumbnail.url, response.Poster); assert.equal(embed.image, undefined);
   assert.match(embed.description, /136 min.*Action/); assert.match(embed.description, /Guardians struggle/);
-  assert.ok(embed.description.includes('[WPARTY](https://wparty.net/s/ds6p2p199fv)'));
+  assert.ok(embed.description.includes('[WPARTY](https://wparty.net/s/qp2p0heze62)'));
   assert.equal(embed.fields.find(field => field.name === 'Режисер').inline, true);
   assert.equal(embed.fields.find(field => field.name === 'У ролях').value, response.Actors);
   assert.match(embed.fields.find(field => field.name === 'Зовнішні оцінки').value, /IMDb.*7\.6\/10.*85%.*67\/100/);

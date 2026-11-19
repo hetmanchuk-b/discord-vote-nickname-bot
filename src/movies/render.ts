@@ -31,7 +31,7 @@ export function renderMovie(snapshot: MovieSnapshot): MoviePayload {
   const movie = snapshot.metadata;
   const heading = title(`🎬 ${safe(movie.title)}${movie.year ? ` (${safe(movie.year)})` : ''}`);
   const details = [movie.runtime, movie.genres].filter((value): value is string => Boolean(value)).map(safe).join(' · ');
-  const description = [details, movie.plot ? safe(movie.plot) : null, '[WPARTY](https://wparty.net/s/ds6p2p199fv)'].filter(Boolean).join('\n\n');
+  const description = [details, movie.plot ? safe(movie.plot) : null, '[WPARTY](https://wparty.net/s/qp2p0heze62)'].filter(Boolean).join('\n\n');
   const embed = new EmbedBuilder().setColor(0xe6b35a).setTitle(heading).setURL(imdbLink(movie.imdbId));
   if (description) embed.setDescription(description);
   const poster = moviePoster(movie.posterUrl);
